@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <title>HOCA MOBİLYA Kamera Testi</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div>
+        <p class="eyebrow">HOCA MOBİLYA STOK PRO</p>
+        <h1>Kamera ve Barkod Testi</h1>
+      </div>
+      <span id="secureBadge" class="badge">Kontrol ediliyor</span>
+    </header>
+
+    <section class="camera-card">
+      <div class="video-wrap">
+        <video id="cameraVideo" playsinline muted></video>
+        <div class="scan-frame" aria-hidden="true"></div>
+        <div id="cameraPlaceholder" class="placeholder">
+          <strong>Kamera henüz başlamadı</strong>
+          <span>Aşağıdaki “Kamerayı Başlat” düğmesine dokun.</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="startButton" class="btn primary" type="button">Kamerayı Başlat</button>
+        <button id="stopButton" class="btn secondary" type="button" disabled>Kamerayı Kapat</button>
+        <button id="switchButton" class="btn secondary" type="button" disabled>Kamerayı Değiştir</button>
+      </div>
+    </section>
+
+    <section class="result-card">
+      <div>
+        <span class="label">Son okunan barkod</span>
+        <strong id="barcodeResult">Henüz barkod okunmadı</strong>
+      </div>
+      <span id="scanCount" class="counter">0 okuma</span>
+    </section>
+
+    <section class="diagnostic-card">
+      <h2>Tanılama Bilgileri</h2>
+      <div class="diagnostic-grid">
+        <div><span>HTTPS</span><strong id="httpsStatus">-</strong></div>
+        <div><span>Tarayıcı kamera desteği</span><strong id="mediaStatus">-</strong></div>
+        <div><span>ZXing durumu</span><strong id="zxingStatus">-</strong></div>
+        <div><span>Seçilen kamera</span><strong id="deviceStatus">-</strong></div>
+      </div>
+      <pre id="errorBox" class="error-box">Hata yok.</pre>
+    </section>
+
+    <section class="manual-card">
+      <h2>Manuel test</h2>
+      <p>Kamera açılmazsa barkodu elle yazarak sayfanın geri kalanını test edebilirsin.</p>
+      <div class="manual-row">
+        <input id="manualBarcode" type="text" inputmode="numeric" autocomplete="off" placeholder="Barkod numarası">
+        <button id="manualButton" class="btn primary" type="button">Barkodu Kullan</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/@zxing/browser@0.2.0/umd/zxing-browser.min.js"></script>
+  <script src="camera.js"></script>
+</body>
+</html>
