@@ -6,7 +6,6 @@
   const startBtn = document.getElementById("startBtn");
   const switchBtn = document.getElementById("switchBtn");
   const stopBtn = document.getElementById("stopBtn");
-
   const barcodeValue = document.getElementById("barcodeValue");
   const scanCount = document.getElementById("scanCount");
   const httpsState = document.getElementById("httpsState");
@@ -20,6 +19,10 @@
   const manualBarcode = document.getElementById("manualBarcode");
   const manualBtn = document.getElementById("manualBtn");
 
+  const params = new URLSearchParams(location.search);
+  const mode = params.get("mode") === "stock" ? "stock" : "quick";
+  const embedded = params.get("embedded") === "1" || window.self !== window.top;
+
   let stream = null;
   let cameras = [];
   let cameraIndex = 0;
@@ -28,47 +31,40 @@
   let totalScans = 0;
   let lastBarcode = "";
   let lastBarcodeTime = 0;
+  let appConnected = false;
+
+  function sendToApp(payload) {
+    if (!embedded || !window.parent) return;
+    window.parent.postMessage({ source: "HOCA_MOBILYA_CAMERA", ...payload }, "*");
+  }
 
   function log(message, error) {
     const lines = [message];
-
     if (error?.name) lines.push(`Hata adı: ${error.name}`);
     if (error?.message) lines.push(`Açıklama: ${error.message}`);
-
     lines.push(`readyState: ${video.readyState}`);
     lines.push(`paused: ${video.paused}`);
     lines.push(`videoWidth: ${video.videoWidth}`);
     lines.push(`videoHeight: ${video.videoHeight}`);
-
     logBox.textContent = lines.join("\n");
   }
 
   function updateVideoStatus() {
-    const names = {
-      0: "Veri yok",
-      1: "Metadata yüklendi",
-      2: "Kare hazır",
-      3: "İleri veri var",
-      4: "Oynatmaya hazır"
-    };
-
+    const names = {0:"Veri yok",1:"Metadata yüklendi",2:"Kare hazır",3:"İleri veri var",4:"Oynatmaya hazır"};
     videoState.textContent = names[video.readyState] || String(video.readyState);
     videoSize.textContent = `${video.videoWidth || 0} × ${video.videoHeight || 0}`;
   }
 
-  function beep() {
+  function beep(success = true) {
     try {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       const context = new AudioContextClass();
       const oscillator = context.createOscillator();
       const gain = context.createGain();
-
-      oscillator.frequency.value = 880;
+      oscillator.frequency.value = success ? 880 : 240;
       gain.gain.value = 0.08;
-
       oscillator.connect(gain);
       gain.connect(context.destination);
-
       oscillator.start();
       oscillator.stop(context.currentTime + 0.12);
       oscillator.onended = () => context.close();
@@ -76,9 +72,7 @@
   }
 
   function vibrate() {
-    if ("vibrate" in navigator) {
-      navigator.vibrate([100, 60, 100]);
-    }
+    if ("vibrate" in navigator) navigator.vibrate([100, 60, 100]);
   }
 
   function acceptBarcode(value) {
@@ -86,24 +80,28 @@
     if (!barcode) return;
 
     const now = Date.now();
-
-    if (barcode === lastBarcode && now - lastBarcodeTime < 2000) {
-      return;
-    }
+    if (barcode === lastBarcode && now - lastBarcodeTime < 2200) return;
 
     lastBarcode = barcode;
     lastBarcodeTime = now;
     totalScans += 1;
-
     barcodeValue.textContent = barcode;
     scanCount.textContent = `${totalScans} okuma`;
-    scanState.textContent = "Barkod bulundu";
-
-    beep();
+    scanState.textContent = embedded ? "Stok sistemine gönderiliyor" : "Barkod bulundu";
+    beep(true);
     vibrate();
 
+    if (embedded) {
+      sendToApp({
+        type: "BARCODE_SCANNED",
+        barcode,
+        scanId: `${Date.now()}-${totalScans}`,
+        mode
+      });
+    }
+
     window.setTimeout(() => {
-      if (stream) scanState.textContent = "Taranıyor";
+      if (stream) scanState.textContent = appConnected ? "Bağlı • Taranıyor" : "Taranıyor";
     }, 1200);
   }
 
@@ -114,7 +112,6 @@
       log("ZXing kütüphanesi yüklenemedi. İnternet bağlantısını kontrol et.");
       return false;
     }
-
     codeReader = new window.ZXingBrowser.BrowserMultiFormatReader();
     zxingState.textContent = "Hazır";
     return true;
@@ -122,28 +119,15 @@
 
   async function startBarcodeScanning() {
     if (!codeReader && !prepareZxing()) return;
-
     stopBarcodeScanning();
-    scanState.textContent = "Taranıyor";
-
+    scanState.textContent = appConnected ? "Bağlı • Taranıyor" : "Taranıyor";
     try {
-      scanControls = await codeReader.decodeFromVideoElement(
-        video,
-        (result, error) => {
-          if (result) {
-            acceptBarcode(result.getText());
-          }
-
-          if (
-            error &&
-            error.name !== "NotFoundException" &&
-            error.name !== "ChecksumException" &&
-            error.name !== "FormatException"
-          ) {
-            console.debug("ZXing tarama bilgisi:", error);
-          }
+      scanControls = await codeReader.decodeFromVideoElement(video, (result, error) => {
+        if (result) acceptBarcode(result.getText());
+        if (error && !["NotFoundException","ChecksumException","FormatException"].includes(error.name)) {
+          console.debug("ZXing tarama bilgisi:", error);
         }
-      );
+      });
     } catch (error) {
       scanState.textContent = "Tarama başlatılamadı";
       log("ZXing barkod taraması başlatılamadı.", error);
@@ -152,12 +136,9 @@
 
   function stopBarcodeScanning() {
     if (scanControls) {
-      try {
-        scanControls.stop();
-      } catch (_) {}
+      try { scanControls.stop(); } catch (_) {}
       scanControls = null;
     }
-
     scanState.textContent = "Bekliyor";
   }
 
@@ -168,25 +149,17 @@
   }
 
   function preferredIndex() {
-    const index = cameras.findIndex(camera =>
-      /back|rear|environment|arka/i.test(camera.label || "")
-    );
-
+    const index = cameras.findIndex(camera => /back|rear|environment|arka/i.test(camera.label || ""));
     return index >= 0 ? index : Math.max(0, cameras.length - 1);
   }
 
   async function stopCamera() {
     stopBarcodeScanning();
-
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       stream = null;
     }
-
-    if (video.srcObject) {
-      video.srcObject = null;
-    }
-
+    if (video.srcObject) video.srcObject = null;
     video.pause();
     cover.classList.remove("hidden");
     cameraState.textContent = "Kapalı";
@@ -198,36 +171,17 @@
 
   async function waitForFirstFrame() {
     return new Promise((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        reject(new Error("İlk video karesi 10 saniye içinde gelmedi."));
-      }, 10000);
-
-      const finish = () => {
-        window.clearTimeout(timeout);
-        resolve();
-      };
-
-      if (video.readyState >= 2 && video.videoWidth > 0) {
-        finish();
-        return;
-      }
-
+      const timeout = window.setTimeout(() => reject(new Error("İlk video karesi 10 saniye içinde gelmedi.")), 10000);
+      const finish = () => { window.clearTimeout(timeout); resolve(); };
+      if (video.readyState >= 2 && video.videoWidth > 0) return finish();
       video.addEventListener("loadeddata", finish, { once: true });
     });
   }
 
   async function startCamera(deviceId) {
     await stopCamera();
-
-    if (!window.isSecureContext || location.protocol !== "https:") {
-      log("HTTPS olmadığı için kamera kullanılamaz.");
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      log("Tarayıcı getUserMedia desteği sunmuyor.");
-      return;
-    }
+    if (!window.isSecureContext || location.protocol !== "https:") return log("HTTPS olmadığı için kamera kullanılamaz.");
+    if (!navigator.mediaDevices?.getUserMedia) return log("Tarayıcı getUserMedia desteği sunmuyor.");
 
     startBtn.disabled = true;
     stopBtn.disabled = false;
@@ -236,49 +190,25 @@
 
     try {
       const constraints = deviceId
-        ? {
-            video: {
-              deviceId: { exact: deviceId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            },
-            audio: false
-          }
-        : {
-            video: {
-              facingMode: { ideal: "environment" },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            },
-            audio: false
-          };
+        ? { video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }
+        : { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
 
       stream = await navigator.mediaDevices.getUserMedia(constraints);
-
       video.srcObject = stream;
       video.muted = true;
       video.autoplay = true;
       video.playsInline = true;
-
       await video.play();
       await waitForFirstFrame();
       await getCameras();
 
       const track = stream.getVideoTracks()[0];
       const settings = track?.getSettings?.() || {};
-
       deviceName.textContent = track?.label || "Kamera";
       cameraState.textContent = "Açık";
       cover.classList.add("hidden");
-
       updateVideoStatus();
-
-      log(
-        `Kamera görüntüsü başladı.\n` +
-        `Çözünürlük: ${video.videoWidth || settings.width || 0} × ` +
-        `${video.videoHeight || settings.height || 0}`
-      );
-
+      log(`Kamera görüntüsü başladı.\nÇözünürlük: ${video.videoWidth || settings.width || 0} × ${video.videoHeight || settings.height || 0}`);
       await startBarcodeScanning();
     } catch (error) {
       const messages = {
@@ -289,9 +219,7 @@
         SecurityError: "Güvenlik ayarı kamerayı engelledi.",
         AbortError: "Kamera işlemi yarıda kesildi."
       };
-
       const message = messages[error?.name] || "Kamera görüntüsü başlatılamadı.";
-
       await stopCamera();
       log(message, error);
     }
@@ -299,58 +227,83 @@
 
   async function switchCamera() {
     await getCameras();
-
     if (cameras.length < 2) return;
-
     cameraIndex = (cameraIndex + 1) % cameras.length;
     await startCamera(cameras[cameraIndex].deviceId);
   }
+
+  window.addEventListener("message", event => {
+    const data = event.data || {};
+    if (data.source !== "HOCA_MOBILYA_APP") return;
+
+    if (data.type === "APP_READY") {
+      appConnected = true;
+      scanState.textContent = stream ? "Bağlı • Taranıyor" : "Uygulamaya bağlı";
+      log(`Stok sistemine bağlandı${data.personnel ? ": " + data.personnel : ""}.`);
+    }
+
+    if (data.type === "SCAN_ACCEPTED") {
+      scanState.textContent = "Barkod alındı";
+    }
+
+    if (data.type === "STOCK_RESULT") {
+      if (data.success) {
+        barcodeValue.textContent = `${data.barcode} • Yeni stok: ${data.newStock}`;
+        scanState.textContent = "Kaydedildi • Taramaya devam";
+        beep(true);
+      } else {
+        scanState.textContent = `Hata: ${data.message || "İşlem başarısız"}`;
+        beep(false);
+      }
+    }
+
+    if (data.type === "PRODUCT_REQUIRED") {
+      scanState.textContent = "Ürün kaydı gerekli";
+      log(data.message || "Barkod kayıtlı değil. Ürün ekleme ekranı açıldı.");
+      beep(false);
+    }
+
+    if (data.type === "CLOSE_CAMERA" || data.type === "SESSION_CLOSED") {
+      stopCamera();
+      sendToApp({ type: "CAMERA_CLOSED" });
+    }
+  });
 
   startBtn.addEventListener("click", async () => {
     try {
       await getCameras();
       cameraIndex = preferredIndex();
-      const selected = cameras[cameraIndex];
-      await startCamera(selected?.deviceId);
+      await startCamera(cameras[cameraIndex]?.deviceId);
     } catch (_) {
       await startCamera();
     }
   });
-
   switchBtn.addEventListener("click", switchCamera);
   stopBtn.addEventListener("click", stopCamera);
-
   manualBtn.addEventListener("click", () => {
     acceptBarcode(manualBarcode.value);
     manualBarcode.value = "";
     manualBarcode.focus();
   });
-
-  manualBarcode.addEventListener("keydown", event => {
-    if (event.key === "Enter") manualBtn.click();
-  });
-
+  manualBarcode.addEventListener("keydown", event => { if (event.key === "Enter") manualBtn.click(); });
   video.addEventListener("loadedmetadata", updateVideoStatus);
   video.addEventListener("loadeddata", updateVideoStatus);
   video.addEventListener("canplay", updateVideoStatus);
-
   video.addEventListener("playing", () => {
     cameraState.textContent = "Açık";
     cover.classList.add("hidden");
     updateVideoStatus();
   });
-
-  video.addEventListener("error", () => {
-    log("Video öğesinde hata oluştu.", video.error);
-  });
-
+  video.addEventListener("error", () => log("Video öğesinde hata oluştu.", video.error));
   window.addEventListener("pagehide", stopCamera);
 
-  httpsState.textContent =
-    window.isSecureContext && location.protocol === "https:"
-      ? "Uygun"
-      : "Uygun değil";
-
+  httpsState.textContent = window.isSecureContext && location.protocol === "https:" ? "Uygun" : "Uygun değil";
   updateVideoStatus();
   prepareZxing();
+  sendToApp({ type: "CAMERA_READY", mode });
+
+  if (embedded) {
+    startBtn.textContent = "Kamerayı Yeniden Başlat";
+    window.setTimeout(() => startBtn.click(), 250);
+  }
 })();
