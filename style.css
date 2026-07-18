@@ -11,9 +11,7 @@
   --border: rgba(255,255,255,.14);
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
@@ -22,10 +20,7 @@ body {
   color: var(--text);
 }
 
-button,
-input {
-  font: inherit;
-}
+button, input { font: inherit; }
 
 .app {
   width: min(720px, 100%);
@@ -33,9 +28,7 @@ input {
   padding: 20px 14px 32px;
 }
 
-header {
-  margin-bottom: 16px;
-}
+header { margin-bottom: 16px; }
 
 .eyebrow {
   margin: 0 0 5px;
@@ -96,13 +89,8 @@ video {
   color: var(--muted);
 }
 
-.cover strong {
-  color: var(--text);
-}
-
-.cover.hidden {
-  display: none;
-}
+.cover strong { color: var(--text); }
+.cover.hidden { display: none; }
 
 .scan-area {
   position: absolute;
@@ -133,9 +121,7 @@ video {
   margin-top: 12px;
 }
 
-.buttons .primary {
-  grid-column: 1 / -1;
-}
+.buttons .primary { grid-column: 1 / -1; }
 
 button {
   min-height: 50px;
@@ -152,13 +138,9 @@ button.primary {
   border-color: var(--accent);
 }
 
-button:disabled {
-  opacity: .45;
-}
+button:disabled { opacity: .45; }
 
-.result-card,
-.status-card,
-.manual-card {
+.result-card, .status-card, .manual-card {
   margin-top: 14px;
   padding: 17px;
   background: var(--panel);
@@ -173,8 +155,7 @@ button:disabled {
   gap: 14px;
 }
 
-.label,
-.grid span {
+.label, .grid span {
   display: block;
   margin-bottom: 4px;
   color: var(--muted);
@@ -241,8 +222,5 @@ pre {
 }
 
 @media (max-width: 520px) {
-  .grid,
-  .manual-row {
-    grid-template-columns: 1fr;
-  }
+  .grid, .manual-row { grid-template-columns: 1fr; }
 }
