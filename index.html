@@ -4,19 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
-  <title>HOCA MOBİLYA Kamera Testi V3</title>
-  <link rel="stylesheet" href="style.css?v=3">
+  <title>HOCA MOBİLYA Kamera Barkod V4</title>
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
   <main class="app">
     <header>
       <p class="eyebrow">HOCA MOBİLYA STOK PRO</p>
-      <h1>Kamera Görüntü Testi V3</h1>
-      <p class="info">Bu sürümde barkod kütüphanesi yoktur. Önce yalnızca kamera görüntüsünü kesin olarak test ediyoruz.</p>
+      <h1>Kamera ve Barkod Okuyucu V4</h1>
+      <p class="info">
+        Çalışan V3 kamera yapısı korunmuştur. Bu sürüm yalnızca barkod okuma özelliğini ekler.
+      </p>
     </header>
 
     <section class="camera-card">
       <video id="video" autoplay muted playsinline webkit-playsinline></video>
+
+      <div class="scan-area" aria-hidden="true">
+        <span></span>
+      </div>
+
       <div id="cover" class="cover">
         <strong>Kamera kapalı</strong>
         <span>Kamerayı Başlat düğmesine bas.</span>
@@ -29,20 +36,46 @@
       <button id="stopBtn" type="button" disabled>Kamerayı Kapat</button>
     </section>
 
+    <section class="result-card">
+      <div>
+        <span class="label">Son okunan barkod</span>
+        <strong id="barcodeValue">Henüz barkod okunmadı</strong>
+      </div>
+      <span id="scanCount">0 okuma</span>
+    </section>
+
     <section class="status-card">
       <h2>Canlı Durum</h2>
+
       <div class="grid">
-        <div><span>Sayfa sürümü</span><strong>V3</strong></div>
+        <div><span>Sayfa sürümü</span><strong>V4</strong></div>
         <div><span>HTTPS</span><strong id="httpsState">-</strong></div>
         <div><span>Kamera</span><strong id="cameraState">Kapalı</strong></div>
         <div><span>Video durumu</span><strong id="videoState">Veri yok</strong></div>
         <div><span>Video boyutu</span><strong id="videoSize">0 × 0</strong></div>
         <div><span>Aktif cihaz</span><strong id="deviceName">-</strong></div>
+        <div><span>Barkod desteği</span><strong id="barcodeSupport">Kontrol ediliyor</strong></div>
+        <div><span>Tarama durumu</span><strong id="scanState">Bekliyor</strong></div>
       </div>
+
       <pre id="log">Hazır.</pre>
+    </section>
+
+    <section class="manual-card">
+      <h2>Manuel barkod testi</h2>
+      <div class="manual-row">
+        <input
+          id="manualBarcode"
+          type="text"
+          inputmode="numeric"
+          autocomplete="off"
+          placeholder="Barkod numarası"
+        >
+        <button id="manualBtn" class="primary" type="button">Barkodu Kullan</button>
+      </div>
     </section>
   </main>
 
-  <script src="camera.js?v=3"></script>
+  <script src="camera.js?v=4"></script>
 </body>
 </html>
