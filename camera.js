@@ -1,449 +1,220 @@
 (() => {
   "use strict";
 
-  const elements = {
-    video: document.getElementById("cameraVideo"),
-    placeholder: document.getElementById("cameraPlaceholder"),
-    startButton: document.getElementById("startButton"),
-    stopButton: document.getElementById("stopButton"),
-    switchButton: document.getElementById("switchButton"),
-    barcodeResult: document.getElementById("barcodeResult"),
-    scanCount: document.getElementById("scanCount"),
-    secureBadge: document.getElementById("secureBadge"),
-    httpsStatus: document.getElementById("httpsStatus"),
-    mediaStatus: document.getElementById("mediaStatus"),
-    zxingStatus: document.getElementById("zxingStatus"),
-    deviceStatus: document.getElementById("deviceStatus"),
-    videoStatus: document.getElementById("videoStatus"),
-    videoSizeStatus: document.getElementById("videoSizeStatus"),
-    errorBox: document.getElementById("errorBox"),
-    manualBarcode: document.getElementById("manualBarcode"),
-    manualButton: document.getElementById("manualButton")
-  };
+  const video = document.getElementById("video");
+  const cover = document.getElementById("cover");
+  const startBtn = document.getElementById("startBtn");
+  const switchBtn = document.getElementById("switchBtn");
+  const stopBtn = document.getElementById("stopBtn");
 
-  let barcodeReader = null;
-  let scanControls = null;
-  let mediaStream = null;
-  let videoDevices = [];
-  let selectedDeviceIndex = 0;
-  let totalScanCount = 0;
-  let lastBarcode = "";
-  let lastBarcodeTime = 0;
+  const httpsState = document.getElementById("httpsState");
+  const cameraState = document.getElementById("cameraState");
+  const videoState = document.getElementById("videoState");
+  const videoSize = document.getElementById("videoSize");
+  const deviceName = document.getElementById("deviceName");
+  const logBox = document.getElementById("log");
 
-  function showError(message, error = null) {
-    const details = [
-      message,
-      error?.name ? `Hata adı: ${error.name}` : "",
-      error?.message ? `Açıklama: ${error.message}` : "",
-      `Video readyState: ${elements.video.readyState}`,
-      `Video paused: ${elements.video.paused}`,
-      `Video size: ${elements.video.videoWidth}x${elements.video.videoHeight}`,
-      `Tarayıcı: ${navigator.userAgent}`
-    ].filter(Boolean);
+  let stream = null;
+  let cameras = [];
+  let cameraIndex = 0;
 
-    elements.errorBox.textContent = details.join("\n");
-    console.error(message, error || "");
+  function log(message, error) {
+    const lines = [message];
+
+    if (error?.name) lines.push(`Hata adı: ${error.name}`);
+    if (error?.message) lines.push(`Açıklama: ${error.message}`);
+
+    lines.push(`readyState: ${video.readyState}`);
+    lines.push(`paused: ${video.paused}`);
+    lines.push(`videoWidth: ${video.videoWidth}`);
+    lines.push(`videoHeight: ${video.videoHeight}`);
+
+    logBox.textContent = lines.join("\n");
   }
 
-  function clearError() {
-    elements.errorBox.textContent = "Hata yok.";
-  }
-
-  function updateVideoInformation() {
-    const readyStateNames = {
+  function updateVideoStatus() {
+    const names = {
       0: "Veri yok",
-      1: "Metadata var",
-      2: "Mevcut kare var",
-      3: "Gelecek kare var",
+      1: "Metadata yüklendi",
+      2: "Kare hazır",
+      3: "İleri veri var",
       4: "Oynatmaya hazır"
     };
 
-    elements.videoStatus.textContent =
-      readyStateNames[elements.video.readyState] || String(elements.video.readyState);
-
-    elements.videoSizeStatus.textContent =
-      `${elements.video.videoWidth || 0} × ${elements.video.videoHeight || 0}`;
+    videoState.textContent = names[video.readyState] || String(video.readyState);
+    videoSize.textContent = `${video.videoWidth || 0} × ${video.videoHeight || 0}`;
   }
 
-  function updateDiagnostics() {
-    const secureConnection =
-      window.isSecureContext && location.protocol === "https:";
-
-    elements.httpsStatus.textContent =
-      secureConnection ? "Uygun (HTTPS)" : "Uygun değil";
-
-    elements.secureBadge.textContent =
-      secureConnection ? "Güvenli bağlantı" : "HTTPS gerekli";
-
-    elements.secureBadge.style.color =
-      secureConnection ? "#86efac" : "#fecaca";
-
-    elements.mediaStatus.textContent =
-      navigator.mediaDevices?.getUserMedia
-        ? "Destekleniyor"
-        : "Desteklenmiyor";
-
-    elements.zxingStatus.textContent =
-      window.ZXingBrowser?.BrowserMultiFormatReader
-        ? "Yüklendi"
-        : "Yüklenemedi";
-
-    updateVideoInformation();
+  async function getCameras() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    cameras = devices.filter(device => device.kind === "videoinput");
+    switchBtn.disabled = cameras.length < 2;
   }
 
-  function vibratePhone() {
-    if ("vibrate" in navigator) {
-      navigator.vibrate([100, 60, 100]);
-    }
+  function preferredIndex() {
+    const index = cameras.findIndex(camera =>
+      /back|rear|environment|arka/i.test(camera.label || "")
+    );
+
+    return index >= 0 ? index : Math.max(0, cameras.length - 1);
   }
 
-  function playBeep() {
-    try {
-      const AudioContextClass =
-        window.AudioContext || window.webkitAudioContext;
-
-      const audioContext = new AudioContextClass();
-      const oscillator = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-
-      oscillator.frequency.value = 880;
-      gain.gain.value = 0.07;
-
-      oscillator.connect(gain);
-      gain.connect(audioContext.destination);
-
-      oscillator.start();
-      oscillator.stop(audioContext.currentTime + 0.12);
-
-      oscillator.onended = () => audioContext.close();
-    } catch (error) {
-      console.debug("Ses oluşturulamadı:", error);
-    }
-  }
-
-  function acceptBarcode(value) {
-    const barcode = String(value || "").trim();
-
-    if (!barcode) {
-      return;
+  async function stopCamera() {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
     }
 
-    const now = Date.now();
-
-    if (barcode === lastBarcode && now - lastBarcodeTime < 1800) {
-      return;
+    if (video.srcObject) {
+      video.srcObject = null;
     }
 
-    lastBarcode = barcode;
-    lastBarcodeTime = now;
-    totalScanCount += 1;
-
-    elements.barcodeResult.textContent = barcode;
-    elements.scanCount.textContent = `${totalScanCount} okuma`;
-
-    playBeep();
-    vibratePhone();
+    video.pause();
+    cover.classList.remove("hidden");
+    cameraState.textContent = "Kapalı";
+    deviceName.textContent = "-";
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    updateVideoStatus();
   }
 
-  async function waitForVideoToPlay() {
+  async function waitForFirstFrame() {
     return new Promise((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        reject(new Error("Video görüntüsü 8 saniye içinde başlamadı."));
-      }, 8000);
+      const timeout = setTimeout(() => {
+        reject(new Error("İlk video karesi 10 saniye içinde gelmedi."));
+      }, 10000);
 
-      const finish = async () => {
-        try {
-          await elements.video.play();
-          window.clearTimeout(timeout);
-          resolve();
-        } catch (error) {
-          window.clearTimeout(timeout);
-          reject(error);
-        }
+      const finish = () => {
+        clearTimeout(timeout);
+        resolve();
       };
 
-      if (
-        elements.video.readyState >= 2 &&
-        elements.video.videoWidth > 0
-      ) {
+      if (video.readyState >= 2 && video.videoWidth > 0) {
         finish();
         return;
       }
 
-      elements.video.addEventListener("loadedmetadata", finish, {
-        once: true
-      });
+      video.addEventListener("loadeddata", finish, { once: true });
     });
   }
 
-  async function listVideoDevices() {
-    const devices = await navigator.mediaDevices.enumerateDevices();
+  async function startCamera(deviceId) {
+    await stopCamera();
 
-    videoDevices = devices.filter(
-      device => device.kind === "videoinput"
-    );
-
-    elements.switchButton.disabled = videoDevices.length < 2;
-
-    return videoDevices;
-  }
-
-  function findPreferredCameraIndex(devices) {
-    const rearCameraIndex = devices.findIndex(device =>
-      /back|rear|environment|arka|camera 0/i.test(device.label || "")
-    );
-
-    if (rearCameraIndex >= 0) {
-      return rearCameraIndex;
-    }
-
-    return Math.max(0, devices.length - 1);
-  }
-
-  async function stopCamera() {
-    try {
-      if (scanControls) {
-        scanControls.stop();
-        scanControls = null;
-      }
-
-      if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop());
-        mediaStream = null;
-      }
-
-      if (elements.video.srcObject) {
-        elements.video.srcObject
-          .getTracks()
-          .forEach(track => track.stop());
-
-        elements.video.srcObject = null;
-      }
-
-      elements.video.pause();
-      elements.video.removeAttribute("src");
-      elements.video.load();
-    } catch (error) {
-      showError("Kamera kapatılırken hata oluştu.", error);
-    } finally {
-      elements.placeholder.hidden = false;
-      elements.startButton.disabled = false;
-      elements.stopButton.disabled = true;
-      elements.switchButton.disabled = videoDevices.length < 2;
-      elements.deviceStatus.textContent = "-";
-      updateVideoInformation();
-    }
-  }
-
-  async function requestCameraPermission() {
-    const permissionStream =
-      await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-      });
-
-    permissionStream.getTracks().forEach(track => track.stop());
-  }
-
-  async function startCamera(deviceId = null) {
-    clearError();
-    updateDiagnostics();
-
-    if (!window.isSecureContext) {
-      showError(
-        "Bu sayfa güvenli bağlantıda değil. Kamera yalnızca HTTPS üzerinde çalışır."
-      );
+    if (!window.isSecureContext || location.protocol !== "https:") {
+      log("HTTPS olmadığı için kamera kullanılamaz.");
       return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      showError("Bu tarayıcı kamera erişimini desteklemiyor.");
+      log("Tarayıcı getUserMedia desteği sunmuyor.");
       return;
     }
 
-    if (!window.ZXingBrowser?.BrowserMultiFormatReader) {
-      showError(
-        "ZXing barkod kütüphanesi yüklenemedi. İnternet bağlantısını kontrol et."
-      );
-      return;
-    }
-
-    await stopCamera();
-
-    elements.startButton.disabled = true;
-    elements.stopButton.disabled = false;
-    elements.placeholder.hidden = true;
-    elements.videoStatus.textContent = "Kamera hazırlanıyor";
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    cameraState.textContent = "Bağlanıyor";
+    log("Kamera izni ve görüntü bekleniyor...");
 
     try {
-      if (!videoDevices.length) {
-        await requestCameraPermission();
-        await listVideoDevices();
-        selectedDeviceIndex = findPreferredCameraIndex(videoDevices);
-      }
-
-      const selectedDevice = deviceId
-        ? videoDevices.find(device => device.deviceId === deviceId)
-        : videoDevices[selectedDeviceIndex];
-
-      const videoConstraints = selectedDevice?.deviceId
+      const constraints = deviceId
         ? {
-            deviceId: { exact: selectedDevice.deviceId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30 }
+            video: {
+              deviceId: { exact: deviceId }
+            },
+            audio: false
           }
         : {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30 }
+            video: {
+              facingMode: { ideal: "environment" }
+            },
+            audio: false
           };
 
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: videoConstraints,
-        audio: false
-      });
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
 
-      elements.video.srcObject = mediaStream;
-      elements.video.muted = true;
-      elements.video.autoplay = true;
-      elements.video.playsInline = true;
+      video.srcObject = stream;
+      video.muted = true;
+      video.autoplay = true;
+      video.playsInline = true;
 
-      await waitForVideoToPlay();
+      await video.play();
+      await waitForFirstFrame();
 
-      const activeTrack = mediaStream.getVideoTracks()[0];
-      const activeSettings = activeTrack?.getSettings?.() || {};
+      await getCameras();
 
-      elements.deviceStatus.textContent =
-        activeTrack?.label ||
-        selectedDevice?.label ||
-        "Kamera aktif";
+      const track = stream.getVideoTracks()[0];
+      const settings = track?.getSettings?.() || {};
 
-      elements.videoStatus.textContent = "Görüntü oynuyor";
-      elements.videoSizeStatus.textContent =
-        `${elements.video.videoWidth || activeSettings.width || 0} × ` +
-        `${elements.video.videoHeight || activeSettings.height || 0}`;
+      deviceName.textContent = track?.label || "Kamera";
+      cameraState.textContent = "Açık";
+      cover.classList.add("hidden");
 
-      barcodeReader =
-        barcodeReader ||
-        new window.ZXingBrowser.BrowserMultiFormatReader();
+      updateVideoStatus();
 
-      scanControls = await barcodeReader.decodeFromStream(
-        mediaStream,
-        elements.video,
-        (result, error) => {
-          if (result) {
-            acceptBarcode(result.getText());
-          }
-
-          if (
-            error &&
-            error.name !== "NotFoundException" &&
-            error.name !== "ChecksumException" &&
-            error.name !== "FormatException"
-          ) {
-            console.debug("Barkod okuma bilgisi:", error);
-          }
-        }
+      log(
+        `Kamera görüntüsü başladı.\n` +
+        `Çözünürlük: ${video.videoWidth || settings.width || 0} × ` +
+        `${video.videoHeight || settings.height || 0}`
       );
-
-      elements.switchButton.disabled = videoDevices.length < 2;
-      updateVideoInformation();
     } catch (error) {
-      const errorMessages = {
-        NotAllowedError:
-          "Kamera izni reddedildi veya tarayıcı tarafından engellendi.",
-        NotFoundError:
-          "Cihazda kullanılabilir kamera bulunamadı.",
-        NotReadableError:
-          "Kamera başka bir uygulama tarafından kullanılıyor olabilir.",
-        OverconstrainedError:
-          "İstenen kamera ayarları cihaz tarafından desteklenmiyor.",
-        SecurityError:
-          "Tarayıcının güvenlik ayarı kamera erişimini engelledi.",
-        AbortError:
-          "Kamera başlatma işlemi yarıda kesildi."
+      const messages = {
+        NotAllowedError: "Kamera izni reddedildi.",
+        NotFoundError: "Kamera bulunamadı.",
+        NotReadableError: "Kamera başka bir uygulama tarafından kullanılıyor olabilir.",
+        OverconstrainedError: "Seçilen kamera ayarı desteklenmiyor.",
+        SecurityError: "Güvenlik ayarı kamerayı engelledi.",
+        AbortError: "Kamera işlemi yarıda kesildi."
       };
 
-      const message =
-        errorMessages[error?.name] ||
-        "Kamera açıldı ancak görüntü başlatılamadı.";
-
+      const message = messages[error?.name] || "Kamera görüntüsü başlatılamadı.";
       await stopCamera();
-      showError(message, error);
+      log(message, error);
     }
   }
 
   async function switchCamera() {
-    if (videoDevices.length < 2) {
-      return;
-    }
+    await getCameras();
 
-    selectedDeviceIndex =
-      (selectedDeviceIndex + 1) % videoDevices.length;
+    if (cameras.length < 2) return;
 
-    await startCamera(
-      videoDevices[selectedDeviceIndex].deviceId
-    );
+    cameraIndex = (cameraIndex + 1) % cameras.length;
+    await startCamera(cameras[cameraIndex].deviceId);
   }
 
-  elements.video.addEventListener("loadedmetadata", updateVideoInformation);
-  elements.video.addEventListener("canplay", updateVideoInformation);
-  elements.video.addEventListener("playing", () => {
-    elements.videoStatus.textContent = "Görüntü oynuyor";
-    elements.placeholder.hidden = true;
-    updateVideoInformation();
-  });
-
-  elements.video.addEventListener("stalled", () => {
-    elements.videoStatus.textContent = "Video bekliyor";
-  });
-
-  elements.video.addEventListener("error", event => {
-    showError(
-      "Video öğesinde oynatma hatası oluştu.",
-      event?.error || elements.video.error
-    );
-  });
-
-  elements.startButton.addEventListener(
-    "click",
-    () => startCamera()
-  );
-
-  elements.stopButton.addEventListener(
-    "click",
-    stopCamera
-  );
-
-  elements.switchButton.addEventListener(
-    "click",
-    switchCamera
-  );
-
-  elements.manualButton.addEventListener("click", () => {
-    acceptBarcode(elements.manualBarcode.value);
-    elements.manualBarcode.value = "";
-    elements.manualBarcode.focus();
-  });
-
-  elements.manualBarcode.addEventListener(
-    "keydown",
-    event => {
-      if (event.key === "Enter") {
-        elements.manualButton.click();
-      }
+  startBtn.addEventListener("click", async () => {
+    try {
+      await getCameras();
+      cameraIndex = preferredIndex();
+      const selected = cameras[cameraIndex];
+      await startCamera(selected?.deviceId);
+    } catch (error) {
+      await startCamera();
     }
-  );
+  });
+
+  switchBtn.addEventListener("click", switchCamera);
+  stopBtn.addEventListener("click", stopCamera);
+
+  video.addEventListener("loadedmetadata", updateVideoStatus);
+  video.addEventListener("loadeddata", updateVideoStatus);
+  video.addEventListener("canplay", updateVideoStatus);
+  video.addEventListener("playing", () => {
+    cameraState.textContent = "Açık";
+    cover.classList.add("hidden");
+    updateVideoStatus();
+  });
+
+  video.addEventListener("error", () => {
+    log("Video öğesinde hata oluştu.", video.error);
+  });
 
   window.addEventListener("pagehide", stopCamera);
 
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden && mediaStream) {
-      stopCamera();
-    }
-  });
+  httpsState.textContent =
+    window.isSecureContext && location.protocol === "https:"
+      ? "Uygun"
+      : "Uygun değil";
 
-  updateDiagnostics();
+  updateVideoStatus();
 })();
