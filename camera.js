@@ -1,132 +1,248 @@
 (() => {
   "use strict";
 
-  const els = {
+  const elements = {
     video: document.getElementById("cameraVideo"),
     placeholder: document.getElementById("cameraPlaceholder"),
-    start: document.getElementById("startButton"),
-    stop: document.getElementById("stopButton"),
-    switch: document.getElementById("switchButton"),
-    result: document.getElementById("barcodeResult"),
-    count: document.getElementById("scanCount"),
+    startButton: document.getElementById("startButton"),
+    stopButton: document.getElementById("stopButton"),
+    switchButton: document.getElementById("switchButton"),
+    barcodeResult: document.getElementById("barcodeResult"),
+    scanCount: document.getElementById("scanCount"),
     secureBadge: document.getElementById("secureBadge"),
-    https: document.getElementById("httpsStatus"),
-    media: document.getElementById("mediaStatus"),
-    zxing: document.getElementById("zxingStatus"),
-    device: document.getElementById("deviceStatus"),
-    error: document.getElementById("errorBox"),
-    manual: document.getElementById("manualBarcode"),
+    httpsStatus: document.getElementById("httpsStatus"),
+    mediaStatus: document.getElementById("mediaStatus"),
+    zxingStatus: document.getElementById("zxingStatus"),
+    deviceStatus: document.getElementById("deviceStatus"),
+    videoStatus: document.getElementById("videoStatus"),
+    videoSizeStatus: document.getElementById("videoSizeStatus"),
+    errorBox: document.getElementById("errorBox"),
+    manualBarcode: document.getElementById("manualBarcode"),
     manualButton: document.getElementById("manualButton")
   };
 
-  let reader = null;
-  let controls = null;
+  let barcodeReader = null;
+  let scanControls = null;
+  let mediaStream = null;
   let videoDevices = [];
   let selectedDeviceIndex = 0;
-  let scanCount = 0;
-  let lastCode = "";
-  let lastCodeAt = 0;
+  let totalScanCount = 0;
+  let lastBarcode = "";
+  let lastBarcodeTime = 0;
 
-  function setError(message, error) {
+  function showError(message, error = null) {
     const details = [
       message,
       error?.name ? `Hata adı: ${error.name}` : "",
       error?.message ? `Açıklama: ${error.message}` : "",
+      `Video readyState: ${elements.video.readyState}`,
+      `Video paused: ${elements.video.paused}`,
+      `Video size: ${elements.video.videoWidth}x${elements.video.videoHeight}`,
       `Tarayıcı: ${navigator.userAgent}`
-    ].filter(Boolean).join("\n");
+    ].filter(Boolean);
 
-    els.error.textContent = details;
+    elements.errorBox.textContent = details.join("\n");
     console.error(message, error || "");
   }
 
   function clearError() {
-    els.error.textContent = "Hata yok.";
+    elements.errorBox.textContent = "Hata yok.";
   }
 
-  function vibrate() {
-    if ("vibrate" in navigator) navigator.vibrate([100, 60, 100]);
-  }
+  function updateVideoInformation() {
+    const readyStateNames = {
+      0: "Veri yok",
+      1: "Metadata var",
+      2: "Mevcut kare var",
+      3: "Gelecek kare var",
+      4: "Oynatmaya hazır"
+    };
 
-  function beep() {
-    try {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      const ctx = new AudioContextClass();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.frequency.value = 880;
-      gain.gain.value = 0.07;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.12);
-      osc.onended = () => ctx.close();
-    } catch (_) {}
-  }
+    elements.videoStatus.textContent =
+      readyStateNames[elements.video.readyState] || String(elements.video.readyState);
 
-  function acceptBarcode(value) {
-    const code = String(value || "").trim();
-    if (!code) return;
-
-    const now = Date.now();
-    if (code === lastCode && now - lastCodeAt < 1800) return;
-
-    lastCode = code;
-    lastCodeAt = now;
-    scanCount += 1;
-
-    els.result.textContent = code;
-    els.count.textContent = `${scanCount} okuma`;
-    beep();
-    vibrate();
+    elements.videoSizeStatus.textContent =
+      `${elements.video.videoWidth || 0} × ${elements.video.videoHeight || 0}`;
   }
 
   function updateDiagnostics() {
-    const secure = window.isSecureContext && location.protocol === "https:";
-    els.https.textContent = secure ? "Uygun (HTTPS)" : "Uygun değil";
-    els.secureBadge.textContent = secure ? "Güvenli bağlantı" : "HTTPS gerekli";
-    els.secureBadge.style.color = secure ? "#86efac" : "#fecaca";
+    const secureConnection =
+      window.isSecureContext && location.protocol === "https:";
 
-    const mediaSupported = Boolean(navigator.mediaDevices?.getUserMedia);
-    els.media.textContent = mediaSupported ? "Destekleniyor" : "Desteklenmiyor";
+    elements.httpsStatus.textContent =
+      secureConnection ? "Uygun (HTTPS)" : "Uygun değil";
 
-    const zxingSupported = Boolean(window.ZXingBrowser?.BrowserMultiFormatReader);
-    els.zxing.textContent = zxingSupported ? "Yüklendi" : "Yüklenemedi";
+    elements.secureBadge.textContent =
+      secureConnection ? "Güvenli bağlantı" : "HTTPS gerekli";
+
+    elements.secureBadge.style.color =
+      secureConnection ? "#86efac" : "#fecaca";
+
+    elements.mediaStatus.textContent =
+      navigator.mediaDevices?.getUserMedia
+        ? "Destekleniyor"
+        : "Desteklenmiyor";
+
+    elements.zxingStatus.textContent =
+      window.ZXingBrowser?.BrowserMultiFormatReader
+        ? "Yüklendi"
+        : "Yüklenemedi";
+
+    updateVideoInformation();
+  }
+
+  function vibratePhone() {
+    if ("vibrate" in navigator) {
+      navigator.vibrate([100, 60, 100]);
+    }
+  }
+
+  function playBeep() {
+    try {
+      const AudioContextClass =
+        window.AudioContext || window.webkitAudioContext;
+
+      const audioContext = new AudioContextClass();
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+
+      oscillator.frequency.value = 880;
+      gain.gain.value = 0.07;
+
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.12);
+
+      oscillator.onended = () => audioContext.close();
+    } catch (error) {
+      console.debug("Ses oluşturulamadı:", error);
+    }
+  }
+
+  function acceptBarcode(value) {
+    const barcode = String(value || "").trim();
+
+    if (!barcode) {
+      return;
+    }
+
+    const now = Date.now();
+
+    if (barcode === lastBarcode && now - lastBarcodeTime < 1800) {
+      return;
+    }
+
+    lastBarcode = barcode;
+    lastBarcodeTime = now;
+    totalScanCount += 1;
+
+    elements.barcodeResult.textContent = barcode;
+    elements.scanCount.textContent = `${totalScanCount} okuma`;
+
+    playBeep();
+    vibratePhone();
+  }
+
+  async function waitForVideoToPlay() {
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        reject(new Error("Video görüntüsü 8 saniye içinde başlamadı."));
+      }, 8000);
+
+      const finish = async () => {
+        try {
+          await elements.video.play();
+          window.clearTimeout(timeout);
+          resolve();
+        } catch (error) {
+          window.clearTimeout(timeout);
+          reject(error);
+        }
+      };
+
+      if (
+        elements.video.readyState >= 2 &&
+        elements.video.videoWidth > 0
+      ) {
+        finish();
+        return;
+      }
+
+      elements.video.addEventListener("loadedmetadata", finish, {
+        once: true
+      });
+    });
+  }
+
+  async function listVideoDevices() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+
+    videoDevices = devices.filter(
+      device => device.kind === "videoinput"
+    );
+
+    elements.switchButton.disabled = videoDevices.length < 2;
+
+    return videoDevices;
+  }
+
+  function findPreferredCameraIndex(devices) {
+    const rearCameraIndex = devices.findIndex(device =>
+      /back|rear|environment|arka|camera 0/i.test(device.label || "")
+    );
+
+    if (rearCameraIndex >= 0) {
+      return rearCameraIndex;
+    }
+
+    return Math.max(0, devices.length - 1);
   }
 
   async function stopCamera() {
     try {
-      if (controls) {
-        controls.stop();
-        controls = null;
+      if (scanControls) {
+        scanControls.stop();
+        scanControls = null;
       }
 
-      const stream = els.video.srcObject;
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        els.video.srcObject = null;
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
       }
+
+      if (elements.video.srcObject) {
+        elements.video.srcObject
+          .getTracks()
+          .forEach(track => track.stop());
+
+        elements.video.srcObject = null;
+      }
+
+      elements.video.pause();
+      elements.video.removeAttribute("src");
+      elements.video.load();
     } catch (error) {
-      setError("Kamera kapatılırken hata oluştu.", error);
+      showError("Kamera kapatılırken hata oluştu.", error);
     } finally {
-      els.placeholder.hidden = false;
-      els.start.disabled = false;
-      els.stop.disabled = true;
-      els.switch.disabled = videoDevices.length < 2;
-      els.device.textContent = "-";
+      elements.placeholder.hidden = false;
+      elements.startButton.disabled = false;
+      elements.stopButton.disabled = true;
+      elements.switchButton.disabled = videoDevices.length < 2;
+      elements.deviceStatus.textContent = "-";
+      updateVideoInformation();
     }
   }
 
-  async function loadDevices() {
-    videoDevices = await window.ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
-    els.switch.disabled = videoDevices.length < 2;
-    return videoDevices;
-  }
+  async function requestCameraPermission() {
+    const permissionStream =
+      await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false
+      });
 
-  function preferredDeviceIndex(devices) {
-    const rearIndex = devices.findIndex(device =>
-      /back|rear|environment|arka/i.test(device.label || "")
-    );
-    return rearIndex >= 0 ? rearIndex : Math.max(0, devices.length - 1);
+    permissionStream.getTracks().forEach(track => track.stop());
   }
 
   async function startCamera(deviceId = null) {
@@ -134,121 +250,199 @@
     updateDiagnostics();
 
     if (!window.isSecureContext) {
-      setError("Bu sayfa güvenli bağlantıda değil. Kamera yalnızca HTTPS üzerinde çalışır.");
+      showError(
+        "Bu sayfa güvenli bağlantıda değil. Kamera yalnızca HTTPS üzerinde çalışır."
+      );
       return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError("Bu tarayıcı kamera erişimini desteklemiyor.");
+      showError("Bu tarayıcı kamera erişimini desteklemiyor.");
       return;
     }
 
     if (!window.ZXingBrowser?.BrowserMultiFormatReader) {
-      setError("ZXing barkod kütüphanesi yüklenemedi. İnternet bağlantısını kontrol et.");
+      showError(
+        "ZXing barkod kütüphanesi yüklenemedi. İnternet bağlantısını kontrol et."
+      );
       return;
     }
 
-    els.start.disabled = true;
-    els.stop.disabled = false;
-    els.placeholder.hidden = true;
+    await stopCamera();
+
+    elements.startButton.disabled = true;
+    elements.stopButton.disabled = false;
+    elements.placeholder.hidden = true;
+    elements.videoStatus.textContent = "Kamera hazırlanıyor";
 
     try {
-      await stopCamera();
-      els.start.disabled = true;
-      els.stop.disabled = false;
-      els.placeholder.hidden = true;
-
-      if (!reader) {
-        reader = new window.ZXingBrowser.BrowserMultiFormatReader();
-      }
-
       if (!videoDevices.length) {
-        try {
-          await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "environment" } },
-            audio: false
-          }).then(stream => stream.getTracks().forEach(track => track.stop()));
-        } catch (_) {}
-
-        await loadDevices();
-        selectedDeviceIndex = preferredDeviceIndex(videoDevices);
+        await requestCameraPermission();
+        await listVideoDevices();
+        selectedDeviceIndex = findPreferredCameraIndex(videoDevices);
       }
 
-      const selected = deviceId
+      const selectedDevice = deviceId
         ? videoDevices.find(device => device.deviceId === deviceId)
         : videoDevices[selectedDeviceIndex];
 
-      const constraints = selected?.deviceId
+      const videoConstraints = selectedDevice?.deviceId
         ? {
-            video: {
-              deviceId: { exact: selected.deviceId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            },
-            audio: false
+            deviceId: { exact: selectedDevice.deviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 }
           }
         : {
-            video: {
-              facingMode: { ideal: "environment" },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            },
-            audio: false
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 }
           };
 
-      els.device.textContent = selected?.label || "Arka kamera tercihi";
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: videoConstraints,
+        audio: false
+      });
 
-      controls = await reader.decodeFromConstraints(
-        constraints,
-        els.video,
+      elements.video.srcObject = mediaStream;
+      elements.video.muted = true;
+      elements.video.autoplay = true;
+      elements.video.playsInline = true;
+
+      await waitForVideoToPlay();
+
+      const activeTrack = mediaStream.getVideoTracks()[0];
+      const activeSettings = activeTrack?.getSettings?.() || {};
+
+      elements.deviceStatus.textContent =
+        activeTrack?.label ||
+        selectedDevice?.label ||
+        "Kamera aktif";
+
+      elements.videoStatus.textContent = "Görüntü oynuyor";
+      elements.videoSizeStatus.textContent =
+        `${elements.video.videoWidth || activeSettings.width || 0} × ` +
+        `${elements.video.videoHeight || activeSettings.height || 0}`;
+
+      barcodeReader =
+        barcodeReader ||
+        new window.ZXingBrowser.BrowserMultiFormatReader();
+
+      scanControls = await barcodeReader.decodeFromStream(
+        mediaStream,
+        elements.video,
         (result, error) => {
-          if (result) acceptBarcode(result.getText());
-          if (error && error.name !== "NotFoundException") {
-            console.debug("Okuma bilgisi:", error);
+          if (result) {
+            acceptBarcode(result.getText());
+          }
+
+          if (
+            error &&
+            error.name !== "NotFoundException" &&
+            error.name !== "ChecksumException" &&
+            error.name !== "FormatException"
+          ) {
+            console.debug("Barkod okuma bilgisi:", error);
           }
         }
       );
 
-      els.switch.disabled = videoDevices.length < 2;
+      elements.switchButton.disabled = videoDevices.length < 2;
+      updateVideoInformation();
     } catch (error) {
-      await stopCamera();
-
-      const messages = {
-        NotAllowedError: "Kamera izni reddedildi veya tarayıcı tarafından engellendi.",
-        NotFoundError: "Cihazda kullanılabilir kamera bulunamadı.",
-        NotReadableError: "Kamera başka bir uygulama tarafından kullanılıyor olabilir.",
-        OverconstrainedError: "İstenen kamera ayarları cihaz tarafından desteklenmiyor.",
-        SecurityError: "Tarayıcının güvenlik ayarı kamera erişimini engelledi.",
-        AbortError: "Kamera başlatma işlemi yarıda kesildi."
+      const errorMessages = {
+        NotAllowedError:
+          "Kamera izni reddedildi veya tarayıcı tarafından engellendi.",
+        NotFoundError:
+          "Cihazda kullanılabilir kamera bulunamadı.",
+        NotReadableError:
+          "Kamera başka bir uygulama tarafından kullanılıyor olabilir.",
+        OverconstrainedError:
+          "İstenen kamera ayarları cihaz tarafından desteklenmiyor.",
+        SecurityError:
+          "Tarayıcının güvenlik ayarı kamera erişimini engelledi.",
+        AbortError:
+          "Kamera başlatma işlemi yarıda kesildi."
       };
 
-      setError(messages[error?.name] || "Kamera başlatılamadı.", error);
+      const message =
+        errorMessages[error?.name] ||
+        "Kamera açıldı ancak görüntü başlatılamadı.";
+
+      await stopCamera();
+      showError(message, error);
     }
   }
 
   async function switchCamera() {
-    if (videoDevices.length < 2) return;
-    selectedDeviceIndex = (selectedDeviceIndex + 1) % videoDevices.length;
-    await startCamera(videoDevices[selectedDeviceIndex].deviceId);
+    if (videoDevices.length < 2) {
+      return;
+    }
+
+    selectedDeviceIndex =
+      (selectedDeviceIndex + 1) % videoDevices.length;
+
+    await startCamera(
+      videoDevices[selectedDeviceIndex].deviceId
+    );
   }
 
-  els.start.addEventListener("click", () => startCamera());
-  els.stop.addEventListener("click", stopCamera);
-  els.switch.addEventListener("click", switchCamera);
-
-  els.manualButton.addEventListener("click", () => {
-    acceptBarcode(els.manual.value);
-    els.manual.value = "";
-    els.manual.focus();
+  elements.video.addEventListener("loadedmetadata", updateVideoInformation);
+  elements.video.addEventListener("canplay", updateVideoInformation);
+  elements.video.addEventListener("playing", () => {
+    elements.videoStatus.textContent = "Görüntü oynuyor";
+    elements.placeholder.hidden = true;
+    updateVideoInformation();
   });
 
-  els.manual.addEventListener("keydown", event => {
-    if (event.key === "Enter") els.manualButton.click();
+  elements.video.addEventListener("stalled", () => {
+    elements.videoStatus.textContent = "Video bekliyor";
   });
+
+  elements.video.addEventListener("error", event => {
+    showError(
+      "Video öğesinde oynatma hatası oluştu.",
+      event?.error || elements.video.error
+    );
+  });
+
+  elements.startButton.addEventListener(
+    "click",
+    () => startCamera()
+  );
+
+  elements.stopButton.addEventListener(
+    "click",
+    stopCamera
+  );
+
+  elements.switchButton.addEventListener(
+    "click",
+    switchCamera
+  );
+
+  elements.manualButton.addEventListener("click", () => {
+    acceptBarcode(elements.manualBarcode.value);
+    elements.manualBarcode.value = "";
+    elements.manualBarcode.focus();
+  });
+
+  elements.manualBarcode.addEventListener(
+    "keydown",
+    event => {
+      if (event.key === "Enter") {
+        elements.manualButton.click();
+      }
+    }
+  );
 
   window.addEventListener("pagehide", stopCamera);
+
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && controls) stopCamera();
+    if (document.hidden && mediaStream) {
+      stopCamera();
+    }
   });
 
   updateDiagnostics();
