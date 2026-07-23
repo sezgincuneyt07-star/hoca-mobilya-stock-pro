@@ -40,6 +40,30 @@ const APP_CONFIG = {
 
   },
 
+  CATEGORY_STOCK_SHEETS: [
+
+    {
+      type: "Yatak",
+      sheetName: "Yatak Stok"
+    },
+
+    {
+      type: "Baza",
+      sheetName: "Baza Stok"
+    },
+
+    {
+      type: "Ayak",
+      sheetName: "Ayak Stok"
+    },
+
+    {
+      type: "Başlık",
+      sheetName: "Başlık Stok"
+    }
+
+  ],
+
   PRODUCT_HEADERS: [
 
     "Barkod",
@@ -221,6 +245,24 @@ function doGet(e) {
   ) {
 
     return handleCameraApiRequest_(e);
+
+  }
+
+  /*
+   * Ürün türlerini Google E-Tablo üzerinde ayrı sekmelerde canlı tutar.
+   * Ana veri kaynağı Urunler sayfasıdır; kategori sekmeleri formülle
+   * otomatik güncellenir ve mevcut stok işlem akışını değiştirmez.
+   */
+  try {
+
+    ensureCategoryStockSheets_();
+
+  } catch (categorySheetError) {
+
+    console.error(
+      "Kategori stok sayfaları hazırlanamadı:",
+      categorySheetError
+    );
 
   }
 
@@ -4686,6 +4728,134 @@ function authorizeAdmin_(
 /************************************************************
  * GOOGLE E-TABLO DOSYASINI AL
  ************************************************************/
+
+/**
+ * Yatak, baza, ayak ve başlık stoklarını Google E-Tablo üzerinde
+ * ayrı ve canlı sekmelerde gösterir.
+ *
+ * Bu sayfalar Urunler tablosundan QUERY formülüyle beslenir.
+ * Böylece uygulamadaki her stok hareketi kategori sekmelerine de
+ * anında yansır ve aynı stok iki farklı yerde bağımsız tutulmaz.
+ */
+function ensureCategoryStockSheets_() {
+
+  const spreadsheet =
+    getSpreadsheet_();
+
+  const sourceSheetName =
+    APP_CONFIG.SHEETS.PRODUCTS;
+
+  APP_CONFIG.CATEGORY_STOCK_SHEETS.forEach(
+    function (categoryConfig) {
+
+      let categorySheet =
+        spreadsheet.getSheetByName(
+          categoryConfig.sheetName
+        );
+
+      if (!categorySheet) {
+
+        categorySheet =
+          spreadsheet.insertSheet(
+            categoryConfig.sheetName
+          );
+
+      }
+
+      const formula =
+        "=QUERY('" +
+        sourceSheetName.replace(
+          /'/g,
+          "''"
+        ) +
+        "'!A:I,\"select * where C = '" +
+        categoryConfig.type.replace(
+          /'/g,
+          "''"
+        ) +
+        "'\",1)";
+
+      const firstCell =
+        categorySheet.getRange(
+          1,
+          1
+        );
+
+      if (
+        firstCell.getFormula() !==
+        formula
+      ) {
+
+        categorySheet.clear();
+        firstCell.setFormula(
+          formula
+        );
+
+      }
+
+      categorySheet.setFrozenRows(
+        1
+      );
+
+      categorySheet
+        .getRange(
+          1,
+          1,
+          1,
+          APP_CONFIG.PRODUCT_HEADERS.length
+        )
+        .setBackground(
+          "#171717"
+        )
+        .setFontColor(
+          "#f6c453"
+        )
+        .setFontWeight(
+          "bold"
+        );
+
+      categorySheet.setColumnWidth(
+        1,
+        150
+      );
+      categorySheet.setColumnWidth(
+        2,
+        120
+      );
+      categorySheet.setColumnWidth(
+        3,
+        100
+      );
+      categorySheet.setColumnWidth(
+        4,
+        220
+      );
+      categorySheet.setColumnWidth(
+        5,
+        110
+      );
+      categorySheet.setColumnWidth(
+        6,
+        120
+      );
+      categorySheet.setColumnWidth(
+        7,
+        90
+      );
+      categorySheet.setColumnWidth(
+        8,
+        100
+      );
+      categorySheet.setColumnWidth(
+        9,
+        80
+      );
+
+    }
+  );
+
+}
+
 
 function getSpreadsheet_() {
 
