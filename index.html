@@ -4,16 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
-  <title>HOCA MOBİLYA Entegre Kamera V6</title>
-  <link rel="stylesheet" href="style.css?v=6">
+  <title>HOCA MOBİLYA Stok Kamerası V8</title>
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
   <main class="app">
     <header>
       <p class="eyebrow">HOCA MOBİLYA STOK PRO</p>
-      <h1>Entegre Barkod Kamerası V6</h1>
+      <h1>Hızlı Stok Barkod Kamerası</h1>
       <p class="info">
-        Apps Script stok sistemine bağlı seri barkod kamerası.
+        Çalışan V5 kamera altyapısı korunmuştur. Okunan barkod stok programına otomatik gönderilir.
       </p>
     </header>
 
@@ -48,7 +48,7 @@
       <h2>Canlı Durum</h2>
 
       <div class="grid">
-        <div><span>Sayfa sürümü</span><strong>V6</strong></div>
+        <div><span>Sayfa sürümü</span><strong>V8</strong></div>
         <div><span>HTTPS</span><strong id="httpsState">-</strong></div>
         <div><span>Kamera</span><strong id="cameraState">Kapalı</strong></div>
         <div><span>Video durumu</span><strong id="videoState">Veri yok</strong></div>
@@ -61,6 +61,14 @@
       <pre id="log">Hazır.</pre>
     </section>
 
+    <section class="result-card">
+      <div>
+        <span class="label">Stok programı bağlantısı</span>
+        <strong id="appConnection">Bağlantı bekleniyor</strong>
+      </div>
+      <button id="returnBtn" type="button">Stok Programına Dön</button>
+    </section>
+
     <section class="manual-card">
       <h2>Manuel barkod testi</h2>
       <div class="manual-row">
@@ -71,6 +79,6 @@
   </main>
 
   <script src="https://unpkg.com/@zxing/browser@0.2.0/umd/zxing-browser.min.js"></script>
-  <script src="camera.js?v=6"></script>
+  <script src="camera.js?v=8"></script>
 </body>
 </html>
