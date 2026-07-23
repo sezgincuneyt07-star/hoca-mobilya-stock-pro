@@ -3,15 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#232832">
-  <title>HOCA MOBİLYA STOK PRO V14</title>
-  <link rel="stylesheet" href="style.css?v=14">
+  <meta name="theme-color" content="#111318">
+  <link rel="icon" type="image/png" href="assets/hoca-logo.png?v=15">
+  <title>HOCA MOBİLYA STOK PRO V15</title>
+  <link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
   <div id="appLoader" class="app-loader">
     <div class="loader-card">
-      <div class="brand-mark">HM</div>
+      <img class="brand-logo" src="assets/hoca-logo.png?v=15" alt="Hoca Mobilya">
       <strong>HOCA MOBİLYA STOK PRO</strong>
+      <small>V15 Stabilizasyon</small>
       <span>Uygulama yükleniyor...</span>
     </div>
   </div>
@@ -27,11 +29,17 @@
   <section id="cameraOverlay" class="camera-overlay hidden" aria-hidden="true">
     <div class="camera-shell">
       <header class="camera-header">
-        <div>
+        <div class="camera-brand">
+          <img src="assets/hoca-logo.png?v=15" alt="Hoca Mobilya">
+          <div>
           <span>HOCA MOBİLYA STOK PRO</span>
           <strong id="cameraTitle">Hızlı Kamera — Liste ve Son Onay</strong>
+          </div>
         </div>
-        <button id="closeCameraButton" class="icon-button" type="button" aria-label="Kamerayı kapat">×</button>
+        <div class="camera-header-actions">
+          <span id="connectionBadge" class="connection-badge online">Sistem bağlı</span>
+          <button id="closeCameraButton" class="icon-button" type="button" aria-label="Kamerayı kapat">×</button>
+        </div>
       </header>
 
       <div class="camera-stage">
@@ -122,7 +130,10 @@
         <div><span>Farklı ürün</span><strong id="confirmProductCount">0</strong></div>
         <div><span>Toplam adet</span><strong id="confirmQuantityCount">0</strong></div>
         <div><span>Onaylayan</span><strong id="confirmPersonnel">-</strong></div>
+        <div><span>İşlem No</span><strong id="confirmRequestId">Onayda oluşturulacak</strong></div>
       </div>
+
+      <div id="confirmProductList" class="confirm-product-list"></div>
 
       <p id="confirmMessage" class="batch-confirm-message"></p>
       <div class="batch-confirm-actions">
@@ -132,7 +143,27 @@
     </div>
   </div>
 
+
+  <div id="draftRestoreModal" class="batch-confirm-backdrop hidden" aria-hidden="true">
+    <div class="batch-confirm-card draft-restore-card" role="dialog" aria-modal="true" aria-labelledby="draftRestoreTitle">
+      <img class="draft-logo" src="assets/hoca-logo.png?v=15" alt="Hoca Mobilya">
+      <span class="batch-confirm-label">KAYITLI TASLAK</span>
+      <h2 id="draftRestoreTitle">Tamamlanmamış stok listeniz bulundu</h2>
+      <p id="draftRestoreText">Daha önce okutulan ürün listesi bu cihazda güvenle saklandı.</p>
+      <div class="batch-confirm-summary">
+        <div><span>Farklı ürün</span><strong id="draftProductCount">0</strong></div>
+        <div><span>Toplam adet</span><strong id="draftQuantityCount">0</strong></div>
+        <div><span>Kaydeden</span><strong id="draftPersonnel">-</strong></div>
+        <div><span>Son kayıt</span><strong id="draftSavedAt">-</strong></div>
+      </div>
+      <div class="batch-confirm-actions">
+        <button id="deleteDraftButton" type="button">Taslağı Sil</button>
+        <button id="restoreDraftButton" class="primary-button" type="button">Taslağı Geri Yükle</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/@zxing/browser@0.2.0/umd/zxing-browser.min.js"></script>
-  <script src="camera.js?v=14"></script>
+  <script src="camera.js?v=15"></script>
 </body>
 </html>
