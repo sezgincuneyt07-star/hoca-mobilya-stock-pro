@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/png" href="https://sezgincuneyt07-star.github.io/hoca-mobilya-stock-pro/assets/hoca-logo.png?v=16">
+  <?!= include("style"); ?>
+  <script src="https://unpkg.com/@zxing/browser@latest"></script>
+</head>
+<body>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- GİRİŞ EKRANI -->
+  <section id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <div class="logo-box logo-image-box"><img src="https://sezgincuneyt07-star.github.io/hoca-mobilya-stock-pro/assets/hoca-logo.png?v=16" alt="Hoca Mobilya"></div>
+
+      <div class="login-title">
+        <span>HOCA MOBİLYA</span>
+        <h1>Stok Pro</h1>
+        <p>Personel hesabınızla giriş yapın.</p>
+      </div>
+
+      <label class="field">
+        <span>Personel</span>
+        <select id="personnelSelect" autocomplete="off">
+          <option value="">Personel yükleniyor...</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>PIN</span>
+        <input
+          id="pinInput"
+          type="password"
+          inputmode="numeric"
+          maxlength="8"
+          autocomplete="new-password"
+          required
+          placeholder="PIN giriniz">
+      </label>
+
+      <button id="loginButton" class="primary-button" type="button">
+        Giriş Yap
+      </button>
+
+      <p id="loginMessage" class="message"></p>
+    </div>
+  </section>
+
+  <!-- UYGULAMA -->
+  <div id="appScreen" class="app hidden">
+
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo-box small logo-image-box"><img src="https://sezgincuneyt07-star.github.io/hoca-mobilya-stock-pro/assets/hoca-logo.png?v=16" alt="Hoca Mobilya"></div>
+        <div>
+          <strong>HOCA MOBİLYA</strong>
+          <span>Stok Pro</span>
+        </div>
+      </div>
+
+      <nav class="menu">
+        <button class="menu-item active" data-page="home">Ana Sayfa</button>
+        <button class="menu-item" data-page="stock">Stok İşlemi</button>
+        <button class="menu-item" data-page="camera">Hızlı Kamera</button>
+        <button class="menu-item" data-page="products">Ürünler</button>
+        <button class="menu-item" data-page="daily">Günlük Kontrol</button>
+        <button class="menu-item" data-page="bulk">Toplu Stok</button>
+        <button class="menu-item admin-only" data-page="reports">Stok Raporları</button>
+        <button class="menu-item admin-only" data-page="movements">Hareketler</button>
+        <button class="menu-item admin-only" data-page="personnel">Personel Yönetimi</button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="user-box">
+          <strong id="currentUser">-</strong>
+          <span id="currentRole">-</span>
+        </div>
+
+        <button id="logoutButton" class="logout-button" type="button">
+          Çıkış Yap
+        </button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div class="topbar-title-group">
+          <img class="topbar-logo" src="https://sezgincuneyt07-star.github.io/hoca-mobilya-stock-pro/assets/hoca-logo.png?v=16" alt="Hoca Mobilya">
+          <div>
+            <h2 id="pageTitle">Ana Sayfa</h2>
+            <p id="pageSubtitle">HOCA MOBİLYA stok yönetim sistemi</p>
+          </div>
+        </div>
+        <div class="topbar-badges">
+          <span class="topbar-badge">V16 Stabil</span>
+          <span class="topbar-badge secure">Son onay güvenliği</span>
+        </div>
+      </header>
+
+      <section id="page-home" class="page active">
+        <div class="dashboard-welcome">
+          <div>
+            <span class="welcome-label">HOCA MOBİLYA STOK PRO</span>
+            <h3>Hoş geldiniz, <span id="welcomeUser">-</span></h3>
+            <p>Güncel stok durumunu ve kritik ürünleri bu ekrandan takip edebilirsiniz.</p>
+          </div>
+          <button id="refreshDashboardButton" class="secondary-button dashboard-refresh" type="button">
+            Verileri Yenile
+          </button>
+        </div>
+
+        <div class="dashboard-summary-grid">
+          <article class="dashboard-stat-card">
+            <span>Toplam ürün çeşidi</span>
+            <strong id="dashboardTotalProducts">0</strong>
+            <small>Aktif ürün kayıtları</small>
+          </article>
+          <article class="dashboard-stat-card">
+            <span>Toplam stok adedi</span>
+            <strong id="dashboardTotalStock">0</strong>
+            <small>Tüm ürün grupları</small>
+          </article>
+          <article class="dashboard-stat-card dashboard-stat-warning">
+            <span>Kritik ürün</span>
+            <strong id="dashboardCriticalCount">0</strong>
+            <small>Kritik seviyede veya altında</small>
+          </article>
+        </div>
+
+        <div class="dashboard-category-grid">
+          <button class="dashboard-category-card" data-dashboard-page="bulk">
+            <span>Yatak</span><strong id="dashboardYatak">0</strong><small>Toplam stok</small>
+          </button>
+          <button class="dashboard-category-card" data-dashboard-page="bulk">
+            <span>Baza</span><strong id="dashboardBaza">0</strong><small>Toplam stok</small>
+          </button>
+          <button class="dashboard-category-card" data-dashboard-page="bulk">
+            <span>Başlık</span><strong id="dashboardBaslik">0</strong><small>Toplam stok</small>
+          </button>
+          <button class="dashboard-category-card" data-dashboard-page="bulk">
+            <span>Ayak</span><strong id="dashboardAyak">0</strong><small>Toplam stok</small>
+          </button>
+        </div>
+
+        <div class="dashboard-content-grid">
+          <div class="dashboard-panel">
+            <div class="dashboard-panel-heading">
+              <div>
+                <span class="section-label">STOK UYARILARI</span>
+                <h3>Kritik stoktaki ürünler</h3>
+              </div>
+              <span id="criticalProductBadge" class="dashboard-count-badge">0 ürün</span>
+            </div>
+
+            <div id="criticalProductsLoading" class="dashboard-loading">Veriler yükleniyor...</div>
+
+            <div id="criticalProductsEmpty" class="dashboard-empty hidden">
+              <strong>Kritik ürün bulunmuyor</strong>
+              <span>Tüm ürünler kritik stok seviyesinin üzerinde.</span>
+            </div>
+
+            <div id="criticalProductsList" class="critical-products-list hidden"></div>
+          </div>
+
+          <div class="dashboard-panel dashboard-shortcuts">
+            <div class="dashboard-panel-heading">
+              <div>
+                <span class="section-label">HIZLI ERİŞİM</span>
+                <h3>Sık kullanılan işlemler</h3>
+              </div>
+            </div>
+
+            <button class="dashboard-shortcut" data-dashboard-page="stock">
+              <strong>Stok işlemi</strong><span>Barkodla giriş veya çıkış yap</span>
+            </button>
+            <button class="dashboard-shortcut" data-dashboard-page="camera">
+              <strong>Hızlı kamera</strong><span>Barkodları listele, kontrol et ve toplu onayla</span>
+            </button>
+            <button class="dashboard-shortcut" data-dashboard-page="products">
+              <strong>Ürün yönetimi</strong><span>Ürün ara, ekle veya düzenle</span>
+            </button>
+            <button class="dashboard-shortcut" data-dashboard-page="daily">
+              <strong>Günlük kontrol</strong><span>Bugünkü stok girişlerini incele</span>
+            </button>
+          </div>
+        </div>
+
+        <p id="dashboardMessage" class="stock-message"></p>
+      </section>
+
+      <section id="page-stock" class="page">
+        <div class="stock-layout">
+
+          <div class="operation-card">
+            <div class="section-heading">
+              <div>
+                <span class="section-label">ÜRÜN SEÇİMİ</span>
+                <h3>Stok Giriş / Çıkış</h3>
+                <p>Barkod okutabilir veya ürün adı, ölçü, renk ve ürün koduyla arayabilirsiniz.</p>
+              </div>
+            </div>
+
+            <label class="field stock-product-search-field">
+              <span>Barkod veya ürün bilgisi</span>
+              <div class="stock-search-shell">
+                <div class="barcode-row stock-barcode-row">
+                  <input
+                    id="stockBarcode"
+                    type="text"
+                    autocomplete="off"
+                    placeholder="Barkod, ürün adı, ölçü, renk veya ürün kodu yazın"
+                    aria-autocomplete="list"
+                    aria-controls="stockProductSuggestions"
+                    aria-expanded="false">
+
+                <button
+                  id="openStockCameraButton"
+                  class="secondary-button"
+                  type="button">
+                  Canlı Kamerayla Tara
+                </button>
+                <input
+                  id="stockCameraCaptureInput"
+                  class="hidden"
+                  type="file"
+                  accept="image/*"
+                  capture="environment">
+
+                  <button
+                    id="findProductButton"
+                    class="secondary-button"
+                    type="button">
+                    Ürünü Bul
+                  </button>
+
+                  <button
+                    id="openStockNewProductButton"
+                    class="secondary-button stock-new-product-button"
+                    type="button">
+                    + Yeni Ürün
+                  </button>
+                </div>
+
+                <div
+                  id="stockProductSuggestions"
+                  class="stock-product-suggestions hidden"
+                  role="listbox"
+                  aria-label="Ürün arama sonuçları">
+                </div>
+              </div>
+              <small class="stock-search-help">En az 2 karakter yazın. Listeden ürünü seçtiğinizde barkod otomatik alınır.</small>
+
+              <div id="stockNotFoundActions" class="stock-not-found-actions hidden">
+                <div class="stock-not-found-copy">
+                  <strong>Ürün kayıtlı değil</strong>
+                  <span>Barkod: <b id="stockNotFoundBarcode">-</b></span>
+                  <small>Yeni ürün oluşturabilir veya barkodu tekrar kontrol edebilirsiniz.</small>
+                </div>
+                <div class="stock-not-found-buttons">
+                  <button id="retryStockProductButton" class="secondary-button" type="button">
+                    Tekrar Dene
+                  </button>
+                  <button id="addMissingStockProductButton" class="primary-button" type="button">
+                    Yeni Ürün Ekle
+                  </button>
+                </div>
+              </div>
+            </label>
+
+            <div class="operation-options">
+              <label class="operation-option selected" id="stockInOption">
+                <input
+                  id="operationStockIn"
+                  type="radio"
+                  name="stockOperation"
+                  value="in"
+                  checked>
+                <span>
+                  <strong>Stok Girişi</strong>
+                  <small>Ürünün stok adedini artırır.</small>
+                </span>
+              </label>
+
+              <label class="operation-option" id="stockOutOption">
+                <input
+                  id="operationStockOut"
+                  type="radio"
+                  name="stockOperation"
+                  value="out">
+                <span>
+                  <strong>Stok Çıkışı</strong>
+                  <small>Ürünün stok adedini azaltır.</small>
+                </span>
+              </label>
+            </div>
+
+            <label class="field quantity-field">
+              <span>İşlem Adedi</span>
+              <div class="quantity-control">
+                <button id="decreaseQuantityButton" type="button">−</button>
+                <input
+                  id="stockQuantity"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value="1">
+                <button id="increaseQuantityButton" type="button">+</button>
+              </div>
+            </label>
+
+            <div class="stock-action-row">
+              <button
+                id="saveStockButton"
+                class="primary-button action-button"
+                type="button">
+                İşlemi Kaydet
+              </button>
+
+              <button
+                id="quickStockButton"
+                class="quick-button action-button"
+                type="button">
+                Hızlı Kamera Listesine Ekle
+              </button>
+            </div>
+
+            <p id="stockMessage" class="stock-message"></p>
+          </div>
+
+          <div class="product-card">
+            <div class="section-heading">
+              <div>
+                <span class="section-label">ÜRÜN BİLGİSİ</span>
+                <h3>Seçili Ürün</h3>
+                <p>İşlemi kaydetmeden önce ürünü kontrol edin.</p>
+              </div>
+            </div>
+
+            <div id="productEmptyState" class="product-empty">
+              <div class="product-empty-icon">▦</div>
+              <strong>Henüz ürün seçilmedi</strong>
+              <span>Barkod alanına ürün barkodunu girip “Ürünü Bul” düğmesine basın.</span>
+            </div>
+
+            <div id="productDetails" class="product-details hidden">
+              <div class="product-name">
+                <span id="productTypeBadge" class="product-badge">-</span>
+                <h4 id="productModel">-</h4>
+                <p id="productBarcode">-</p>
+              </div>
+
+              <div class="product-info-grid">
+                <div>
+                  <span>Ürün Kodu</span>
+                  <strong id="productCode">-</strong>
+                </div>
+                <div>
+                  <span>Ölçü</span>
+                  <strong id="productSize">-</strong>
+                </div>
+                <div>
+                  <span>Renk</span>
+                  <strong id="productColor">-</strong>
+                </div>
+                <div class="stock-highlight">
+                  <span>Mevcut Stok</span>
+                  <strong id="productStock">0</strong>
+                </div>
+                <div>
+                  <span>Kritik Stok</span>
+                  <strong id="productCritical">0</strong>
+                </div>
+                <div>
+                  <span>Durum</span>
+                  <strong id="productStatus">-</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="usage-card">
+          <strong>Hızlı kullanım</strong>
+          <span>
+            Barkodu okutunca Enter tuşuna basabilirsiniz.
+            Hızlı Kamera Listesine Ekle düğmesi stok değiştirmez; ürünü son onay listesine aktarır.
+          </span>
+        </div>
+      </section>
+
+
+      <section id="page-camera" class="page">
+        <div class="camera-page-layout">
+          <div class="camera-page-card">
+            <div class="section-heading">
+              <div>
+                <span class="section-label">SERİ STOK GİRİŞİ</span>
+                <h3>Hızlı Kamera</h3>
+                <p>
+                  Barkodlar cihazda korunan geçici listeye eklenir. Aynı ürünü art arda okutabilirsiniz; barkodu kadrajdan çıkarıp yeniden gösterin. Stok yalnızca son onayda değişir.
+                </p>
+              </div>
+            </div>
+
+            <div class="camera-capture-panel">
+              <button id="toggleCameraButton" class="camera-start-button" type="button">
+                Canlı Kamerayı Başlat
+              </button>
+              <p class="camera-capture-help">
+                Kamera sürekli açık kalır. Barkodları okutun, listedeki adetleri kontrol edin ve en son “Stoğa Ekle” düğmesiyle onaylayın.
+              </p>
+            </div>
+
+            <div id="cameraArea" class="camera-area camera-page-view hidden">
+              <video id="barcodeCamera" playsinline muted autoplay></video>
+              <div class="camera-guide"><span></span></div>
+              <div id="cameraStatus" class="camera-status">Kamera başlatılmadı.</div>
+              <div id="cameraEngineBadge" class="camera-engine-badge">Tarayıcı hazırlanıyor</div>
+            </div>
+
+            <div class="camera-live-controls">
+              <select id="cameraDeviceSelect"><option value="">Arka kamera (otomatik)</option></select>
+              <select id="cameraCooldownSelect">
+                <option value="800">0,8 saniye</option>
+                <option value="1100" selected>1,1 saniye</option>
+                <option value="1500">1,5 saniye</option>
+              </select>
+              <button id="toggleTorchButton" class="secondary-button" type="button" disabled>Feneri Aç</button>
+            </div>
+
+            <div class="camera-manual-card">
+              <label for="manualCameraBarcode">Manuel barkod</label>
+              <div>
+                <input
+                  id="manualCameraBarcode"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  placeholder="Barkodu yazın veya el terminaliyle okutun">
+                <button id="manualCameraAddButton" class="primary-button" type="button">
+                  Listeye Ekle
+                </button>
+              </div>
+            </div>
+
+            <div class="camera-result-panel">
+              <div>
+                <span>Son okunan barkod</span>
+                <strong id="cameraLastBarcode">Henüz okutulmadı</strong>
+              </div>
+              <div>
+                <span>Son işlem</span>
+                <strong id="cameraLastResult">Kamera başlatılmadı</strong>
+              </div>
+              <div>
+                <span>Listeye eklenen</span>
+                <strong id="cameraScanCount">0</strong>
+              </div>
+            </div>
+
+            <p id="cameraMessage" class="stock-message"></p>
+          </div>
+
+          <div class="camera-help-card">
+            <span class="section-label">ONAY BEKLEYEN OKUMALAR</span>
+            <h3>Bu oturumda listeye eklenenler</h3>
+
+            <div id="cameraRecentEmpty" class="camera-recent-empty">
+              Henüz onay listesine ürün eklenmedi.
+            </div>
+
+            <div id="cameraRecentList" class="camera-recent-list hidden"></div>
+
+            <div class="camera-warning">
+              Barkod okutulduğunda stok hemen değişmez. Aynı ürün tekrar okutulursa listedeki adedi artar; son onaydan önce miktarı değiştirebilir veya ürünü silebilirsiniz.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="page-products" class="page">
+        <div class="products-toolbar">
+          <div>
+            <span class="section-label">ÜRÜN YÖNETİMİ</span>
+            <h3>Ürün ara ve yeni ürün ekle</h3>
+            <p>
+              Barkod, ürün kodu, model, ölçü veya renk bilgisiyle arama yapabilirsiniz.
+            </p>
+          </div>
+
+          <button id="openNewProductButton" class="primary-button admin-only" type="button">
+            + Yeni Ürün
+          </button>
+        </div>
+
+        <div class="products-search-card">
+          <label for="productSearchInput">Ürün ara</label>
+          <div class="products-search-row">
+            <input
+              id="productSearchInput"
+              type="search"
+              placeholder="En az 2 karakter yazın..."
+              autocomplete="off">
+            <button id="searchProductsButton" class="secondary-button" type="button">
+              Ara
+            </button>
+          </div>
+          <small>En az 2 karakter yazdığınızda sonuçlar otomatik olarak listelenir.</small>
+        </div>
+
+        <div class="products-layout">
+          <div class="products-list-card">
+            <div class="products-list-heading">
+              <div>
+                <strong>Arama sonuçları</strong>
+                <span id="productResultCount">0 ürün</span>
+              </div>
+              <button id="clearProductSearchButton" class="text-button" type="button">
+                Temizle
+              </button>
+            </div>
+
+            <div id="productsSearchLoading" class="products-state hidden">
+              Ürünler aranıyor...
+            </div>
+
+            <div id="productsSearchEmpty" class="products-state">
+              <strong>Arama yapın</strong>
+              <span>Ürün sonuçları burada listelenecek.</span>
+            </div>
+
+            <div id="productsSearchList" class="products-search-list hidden"></div>
+          </div>
+
+          <div class="product-management-detail-card">
+            <div id="managementProductEmpty" class="products-state">
+              <strong>Ürün seçilmedi</strong>
+              <span>Detaylarını görmek için listeden bir ürün seçin.</span>
+            </div>
+
+            <div id="managementProductDetail" class="hidden">
+              <div class="management-product-header">
+                <div>
+                  <span id="managementProductType" class="product-badge">-</span>
+                  <h3 id="managementProductModel">-</h3>
+                  <p id="managementProductBarcode">-</p>
+                </div>
+                <span id="managementProductStatus" class="management-status-badge">Aktif</span>
+              </div>
+
+              <div class="management-product-grid">
+                <div><span>Ürün kodu</span><strong id="managementProductCode">-</strong></div>
+                <div><span>Ölçü</span><strong id="managementProductSize">-</strong></div>
+                <div><span>Renk</span><strong id="managementProductColor">-</strong></div>
+                <div><span>Mevcut stok</span><strong id="managementProductStock">0</strong></div>
+                <div><span>Kritik stok</span><strong id="managementProductCritical">0</strong></div>
+              </div>
+
+              <div class="management-product-actions">
+                <button id="goToStockFromProductButton" class="secondary-button" type="button">
+                  Stok İşlemine Git
+                </button>
+                <button id="toggleProductStatusButton" class="danger-outline-button admin-only" type="button">
+                  Pasife Al
+                </button>
+              </div>
+
+              <p id="productManagementMessage" class="stock-message"></p>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <section id="page-daily" class="page">
+        <div class="daily-toolbar">
+          <div>
+            <span class="section-label">GÜNLÜK KONTROL</span>
+            <h3>Günlük stok girişlerini kontrol et</h3>
+            <p>Seçilen güne ait stok girişlerini personel ve ürün bazında inceleyin.</p>
+          </div>
+          <button id="refreshDailyButton" class="secondary-button" type="button">
+            Verileri Yenile
+          </button>
+        </div>
+
+        <div class="daily-filter-card">
+          <label>
+            <span>Tarih</span>
+            <input id="dailyDateInput" type="date">
+          </label>
+
+          <label id="dailyPersonnelFilterLabel" class="admin-only">
+            <span>Personel</span>
+            <select id="dailyPersonnelSelect">
+              <option value="">Tüm personeller</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Ürün türü</span>
+            <select id="dailyTypeSelect">
+              <option value="">Tüm ürün türleri</option>
+              <option value="Yatak">Yatak</option>
+              <option value="Baza">Baza</option>
+              <option value="Başlık">Başlık</option>
+              <option value="Ayak">Ayak</option>
+            </select>
+          </label>
+
+          <label class="daily-search-label">
+            <span>Arama</span>
+            <input
+              id="dailySearchInput"
+              type="search"
+              placeholder="Barkod, model, ölçü veya renk...">
+          </label>
+        </div>
+
+        <div class="daily-summary-cards">
+          <div class="daily-summary-card">
+            <span>Toplam işlem</span>
+            <strong id="dailyTotalTransactions">0</strong>
+          </div>
+          <div class="daily-summary-card">
+            <span>Toplam stok girişi</span>
+            <strong id="dailyTotalQuantity">0</strong>
+          </div>
+          <div class="daily-summary-card">
+            <span>Farklı ürün</span>
+            <strong id="dailyUniqueProducts">0</strong>
+          </div>
+          <div class="daily-summary-card">
+            <span>Seçili personel</span>
+            <strong id="dailySelectedPersonnel">Tümü</strong>
+          </div>
+        </div>
+
+        <div class="daily-content-card">
+          <div class="daily-tabs">
+            <button class="daily-tab active" data-daily-view="summary" type="button">
+              Ürün Özeti
+            </button>
+            <button class="daily-tab" data-daily-view="details" type="button">
+              İşlem Detayları
+            </button>
+          </div>
+
+          <div id="dailyLoading" class="daily-state hidden">
+            Günlük kayıtlar yükleniyor...
+          </div>
+
+          <div id="dailyEmpty" class="daily-state hidden">
+            <strong>Kayıt bulunamadı</strong>
+            <span>Seçilen filtrelere ait stok girişi yok.</span>
+          </div>
+
+          <div id="dailySummaryView">
+            <div class="daily-table-wrap">
+              <table class="daily-table">
+                <thead>
+                  <tr>
+                    <th>Ürün</th>
+                    <th>Tür</th>
+                    <th>Ölçü / Renk</th>
+                    <th>Barkod</th>
+                    <th>İşlem Sayısı</th>
+                    <th>Toplam Giriş</th>
+                  </tr>
+                </thead>
+                <tbody id="dailySummaryBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="dailyDetailsView" class="hidden">
+            <div class="daily-table-wrap">
+              <table class="daily-table">
+                <thead>
+                  <tr>
+                    <th>Saat</th>
+                    <th>Personel</th>
+                    <th>Ürün</th>
+                    <th>Barkod</th>
+                    <th>Miktar</th>
+                    <th>Stok Değişimi</th>
+                    <th>Kaynak</th>
+                  </tr>
+                </thead>
+                <tbody id="dailyDetailsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <p id="dailyMessage" class="stock-message"></p>
+      </section>
+
+      <section id="page-bulk" class="page">
+        <div class="bulk-toolbar">
+          <div>
+            <span class="section-label">TOPLU STOK</span>
+            <h3>Ürün gruplarını toplu olarak incele</h3>
+            <p>Yatak, baza, başlık ve ayak stoklarını ayrı listelerde görüntüleyin.</p>
+          </div>
+
+          <button id="refreshBulkButton" class="secondary-button" type="button">
+            Verileri Yenile
+          </button>
+        </div>
+
+        <div class="bulk-group-cards">
+          <button class="bulk-group-card active" data-bulk-type="Yatak" type="button">
+            <span>Yatak</span>
+            <strong id="bulkYatakStock">0</strong>
+            <small><b id="bulkYatakCount">0</b> ürün çeşidi</small>
+          </button>
+
+          <button class="bulk-group-card" data-bulk-type="Baza" type="button">
+            <span>Baza</span>
+            <strong id="bulkBazaStock">0</strong>
+            <small><b id="bulkBazaCount">0</b> ürün çeşidi</small>
+          </button>
+
+          <button class="bulk-group-card" data-bulk-type="Başlık" type="button">
+            <span>Başlık</span>
+            <strong id="bulkBaslikStock">0</strong>
+            <small><b id="bulkBaslikCount">0</b> ürün çeşidi</small>
+          </button>
+
+          <button class="bulk-group-card" data-bulk-type="Ayak" type="button">
+            <span>Ayak</span>
+            <strong id="bulkAyakStock">0</strong>
+            <small><b id="bulkAyakCount">0</b> ürün çeşidi</small>
+          </button>
+        </div>
+
+        <div class="bulk-list-card">
+          <div class="bulk-list-heading">
+            <div>
+              <span id="bulkSelectedType" class="product-badge">Yatak</span>
+              <h3 id="bulkListTitle">Yatak stok listesi</h3>
+              <p>
+                <b id="bulkProductCount">0</b> ürün çeşidi ·
+                Toplam <b id="bulkTotalStock">0</b> adet stok
+              </p>
+            </div>
+
+            <div class="bulk-list-actions">
+              <input
+                id="bulkSearchInput"
+                type="search"
+                placeholder="Model, ölçü, renk veya barkod...">
+
+              <select id="bulkStockFilter">
+                <option value="all">Tüm stoklar</option>
+                <option value="critical">Kritik stoklar</option>
+                <option value="zero">Stokta olmayanlar</option>
+                <option value="available">Stokta olanlar</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="bulkLoading" class="bulk-state hidden">
+            Stok listesi yükleniyor...
+          </div>
+
+          <div id="bulkEmpty" class="bulk-state hidden">
+            <strong>Ürün bulunamadı</strong>
+            <span>Bu grupta seçilen filtrelere uygun ürün yok.</span>
+          </div>
+
+          <div id="bulkTableWrap" class="bulk-table-wrap">
+            <table class="bulk-table">
+              <thead>
+                <tr>
+                  <th>Ürün</th>
+                  <th>Ürün Kodu</th>
+                  <th>Ölçü</th>
+                  <th>Renk</th>
+                  <th>Barkod</th>
+                  <th>Kritik Seviye</th>
+                  <th>Mevcut Stok</th>
+                  <th>Durum</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="bulkTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <p id="bulkMessage" class="stock-message"></p>
+      </section>
+
+
+      <section id="page-reports" class="page admin-only">
+        <div class="dashboard-welcome reports-welcome">
+          <div>
+            <span class="welcome-label">YÖNETİCİ PANELİ</span>
+            <h3>Kategori Bazlı Stok Raporları</h3>
+            <p>Tüm ürünleri kategori, model, ölçü ve renge göre inceleyin; PDF, yazdırma veya CSV/Excel çıktısı alın.</p>
+          </div>
+          <div class="reports-header-actions">
+            <button id="downloadProductReportCsvButton" class="secondary-button dashboard-refresh" type="button">CSV / Excel</button>
+            <button id="printProductReportButton" class="secondary-button dashboard-refresh" type="button">PDF / Yazdır</button>
+            <button id="refreshProductReportButton" class="secondary-button dashboard-refresh" type="button">Raporu Yenile</button>
+          </div>
+        </div>
+
+        <div class="reports-filter-card">
+          <label><span>Kategori</span><select id="productReportCategoryFilter"><option value="">Tüm kategoriler</option></select></label>
+          <label><span>Stok Durumu</span><select id="productReportStockFilter"><option value="">Tümü</option><option value="inStock">Stokta olanlar</option><option value="outOfStock">Stokta olmayanlar</option><option value="critical">Kritik stoktakiler</option></select></label>
+          <label class="reports-search-field"><span>Ürün, ölçü, renk, barkod veya kod ara</span><input id="productReportSearchInput" type="search" placeholder="Örn. Truva, 90x190, vizon"></label>
+          <label><span>Sıralama</span><select id="productReportSort"><option value="category">Kategori / ürün adı</option><option value="stockDesc">Stok: çoktan aza</option><option value="stockAsc">Stok: azdan çoğa</option></select></label>
+        </div>
+
+        <div class="report-summary-grid">
+          <div class="report-summary-card"><span>Kategori</span><strong id="productReportCategoryCount">0</strong><small>Filtrelenen kategori</small></div>
+          <div class="report-summary-card"><span>Ürün Çeşidi</span><strong id="productReportProductCount">0</strong><small>Farklı ürün</small></div>
+          <div class="report-summary-card report-stock"><span>Toplam Stok</span><strong id="productReportTotalStock">0</strong><small>Adet</small></div>
+          <div class="report-summary-card report-critical"><span>Kritik / Tükenen</span><strong id="productReportCriticalCount">0</strong><small>Ürün çeşidi</small></div>
+        </div>
+
+        <div id="productReportLoading" class="dashboard-loading hidden">Ürün raporu hazırlanıyor...</div>
+        <div id="productReportEmpty" class="dashboard-empty hidden"><strong>Ürün bulunamadı</strong><span>Seçilen filtrelere uygun ürün bulunmuyor.</span></div>
+        <div id="productReportGroups" class="product-report-groups"></div>
+        <p id="productReportMessage" class="stock-message"></p>
+      </section>
+
+      <section id="page-movements" class="page admin-only">
+        <div class="dashboard-welcome movements-welcome">
+          <div>
+            <span class="welcome-label">YÖNETİCİ PANELİ</span>
+            <h3>Tüm Stok Hareketleri</h3>
+            <p>Personellerin yaptığı giriş, çıkış ve stok düzenleme işlemlerini ayrıntılı olarak inceleyin.</p>
+          </div>
+          <div class="movements-header-actions">
+            <button id="downloadMovementCsvButton" class="secondary-button dashboard-refresh" type="button">CSV / Excel Raporu</button>
+            <button id="printMovementReportButton" class="secondary-button dashboard-refresh" type="button">PDF / Yazdır</button>
+            <button id="refreshMovementsButton" class="secondary-button dashboard-refresh" type="button">Hareketleri Yenile</button>
+          </div>
+        </div>
+
+        <div class="movements-filter-card">
+          <label><span>Personel</span><select id="movementPersonnelFilter"><option value="">Tüm personeller</option></select></label>
+          <label><span>İşlem Türü</span><select id="movementOperationFilter"><option value="">Tüm işlemler</option><option value="Giriş">Stok Girişi</option><option value="Çıkış">Stok Çıkışı</option><option value="Düzeltme">Stok Düzeltme</option></select></label>
+          <label><span>Başlangıç Tarihi</span><input id="movementStartDate" type="date"></label>
+          <label><span>Bitiş Tarihi</span><input id="movementEndDate" type="date"></label>
+          <label class="movements-search-field"><span>Ürün, barkod veya kod ara</span><input id="movementSearchInput" type="search" placeholder="Örn. yatak, 869..., ürün kodu"></label>
+          <label><span>Sıralama</span><select id="movementSort"><option value="newest">En yeni önce</option><option value="oldest">En eski önce</option></select></label>
+        </div>
+
+        <div class="movement-summary-grid">
+          <div class="movement-summary-card"><span>Toplam Hareket</span><strong id="movementTotalCount">0</strong><small>Filtrelenen kayıt</small></div>
+          <div class="movement-summary-card movement-in"><span>Toplam Giriş</span><strong id="movementTotalIn">0</strong><small>Adet</small></div>
+          <div class="movement-summary-card movement-out"><span>Toplam Çıkış</span><strong id="movementTotalOut">0</strong><small>Adet</small></div>
+          <div class="movement-summary-card"><span>İşlem Yapan</span><strong id="movementPersonnelCount">0</strong><small>Farklı personel</small></div>
+        </div>
+
+        <div class="movements-table-card">
+          <div class="dashboard-panel-heading">
+            <div><span class="section-label">HAREKET GEÇMİŞİ</span><h3>İşlem Kayıtları</h3></div>
+            <span id="movementCountBadge" class="dashboard-count-badge">0 kayıt</span>
+          </div>
+          <div id="movementsLoading" class="dashboard-loading hidden">Hareketler yükleniyor...</div>
+          <div id="movementsEmpty" class="dashboard-empty hidden"><strong>Hareket bulunamadı</strong><span>Seçilen filtrelere uygun işlem kaydı yok.</span></div>
+          <div id="movementsTableWrap" class="movements-table-wrap hidden">
+            <table class="movements-table">
+              <thead><tr><th>Tarih / Saat</th><th>Personel</th><th>Ürün</th><th>Barkod / Kod</th><th>İşlem</th><th>Miktar</th><th>Stok Değişimi</th><th>Kaynak</th><th>Açıklama</th><th>İşlem</th></tr></thead>
+              <tbody id="movementsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <p id="movementsMessage" class="stock-message"></p>
+      </section>
+
+      <section id="page-personnel" class="page admin-only">
+        <div class="dashboard-welcome personnel-welcome">
+          <div>
+            <span class="welcome-label">YÖNETİCİ PANELİ</span>
+            <h3>Personel Yönetimi</h3>
+            <p>Personel hesaplarını güvenli şekilde ekleyin, düzenleyin ve yetkilerini yönetin.</p>
+          </div>
+          <button id="refreshPersonnelButton" class="secondary-button dashboard-refresh" type="button">Listeyi Yenile</button>
+        </div>
+
+        <div class="personnel-management-layout">
+          <aside class="personnel-list-card">
+            <div class="personnel-card-heading">
+              <div><span class="section-label">PERSONEL LİSTESİ</span><h3>Kayıtlı Personeller</h3></div>
+              <span id="personnelCountBadge" class="dashboard-count-badge">0 personel</span>
+            </div>
+            <label class="personnel-search"><span>Personel ara</span><input id="personnelSearchInput" type="search" placeholder="Ad veya yetki ara"></label>
+            <div id="personnelLoading" class="dashboard-loading hidden">Personeller yükleniyor...</div>
+            <div id="personnelEmpty" class="dashboard-empty hidden"><strong>Personel bulunamadı</strong><span>Yeni personel ekleyerek başlayabilirsiniz.</span></div>
+            <div id="personnelCardList" class="personnel-card-list"></div>
+          </aside>
+
+          <div class="personnel-detail-column">
+            <div class="personnel-add-card">
+              <div class="personnel-card-heading"><div><span class="section-label">YENİ PERSONEL</span><h3>Personel Ekle</h3></div><div class="personnel-heading-icon">＋</div></div>
+              <form id="newPersonnelForm" class="personnel-form-grid">
+                <label class="field"><span>Personel Adı</span><input id="newPersonnelName" type="text" maxlength="60" autocomplete="off" placeholder="Ad soyad"></label>
+                <label class="field"><span>PIN</span><input id="newPersonnelPin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" placeholder="4-8 haneli PIN"></label>
+                <label class="field"><span>Yetki</span><select id="newPersonnelRole"><option value="Personel">Personel</option><option value="Yönetici">Yönetici</option></select></label>
+                <label class="field"><span>Durum</span><select id="newPersonnelActive"><option value="Evet">Aktif</option><option value="Hayır">Pasif</option></select></label>
+                <button id="addPersonnelButton" class="primary-button action-button personnel-form-submit" type="submit">Personeli Ekle</button>
+              </form>
+              <p id="newPersonnelMessage" class="stock-message"></p>
+            </div>
+
+            <div class="personnel-editor-card">
+              <div id="personnelEditEmpty" class="personnel-editor-empty"><div class="personnel-empty-avatar">👤</div><strong>Personel seçilmedi</strong><span>Sol taraftaki listeden düzenlemek istediğiniz personeli seçin.</span></div>
+              <form id="editPersonnelForm" class="hidden">
+                <input id="editPersonnelOriginalName" type="hidden">
+                <div class="personnel-profile-header">
+                  <div id="editPersonnelAvatar" class="personnel-avatar">P</div>
+                  <div class="personnel-profile-main"><span class="section-label">PERSONEL DÜZENLE</span><h3 id="editPersonnelHeaderName">Seçili Personel</h3><div class="personnel-profile-badges"><span id="editPersonnelRoleBadge" class="personnel-role-badge">Personel</span><span id="editPersonnelStatusBadge" class="personnel-status-badge">Aktif</span></div></div>
+                </div>
+
+                <div class="personnel-section-card">
+                  <div class="personnel-section-title"><div><strong>Temel Bilgiler</strong><span>Personelin adı, yetkisi ve hesap durumunu düzenleyin.</span></div></div>
+                  <div class="personnel-form-grid">
+                    <label class="field personnel-wide"><span>Personel Adı</span><input id="editPersonnelName" type="text" maxlength="60" autocomplete="off"></label>
+                    <label class="field"><span>Yetki</span><select id="editPersonnelRole"><option value="Personel">Personel</option><option value="Yönetici">Yönetici</option></select></label>
+                    <label class="field"><span>Durum</span><select id="editPersonnelActive"><option value="Evet">Aktif</option><option value="Hayır">Pasif</option></select></label>
+                  </div>
+                  <button id="updatePersonnelButton" class="primary-button personnel-save-button" type="submit">Bilgileri Güncelle</button>
+                </div>
+
+                <div class="personnel-security-card">
+                  <div class="personnel-security-icon">🔐</div>
+                  <div class="personnel-security-content"><strong>PIN Güvenliği</strong><span>Yeni PIN 4-8 rakamdan oluşmalıdır.</span><label class="field"><span>Yeni PIN</span><input id="editPersonnelNewPin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" placeholder="Yeni PIN"></label><button id="changePersonnelPinButton" class="secondary-button personnel-pin-button" type="button">PIN'i Değiştir</button></div>
+                </div>
+              </form>
+              <p id="editPersonnelMessage" class="stock-message"></p>
+            </div>
+          </div>
+        </div>
+        <p id="personnelMessage" class="stock-message"></p>
+      </section>
+
+    </main>
+
+    <!-- V16 MOBİL ALT MENÜ -->
+    <nav id="mobileBottomNav" class="mobile-bottom-nav" aria-label="Mobil ana menü">
+      <button class="mobile-nav-item active" data-page="home" type="button">
+        <span class="mobile-nav-icon" aria-hidden="true">⌂</span>
+        <span>Ana Sayfa</span>
+      </button>
+      <button class="mobile-nav-item" data-page="stock" type="button">
+        <span class="mobile-nav-icon" aria-hidden="true">⇅</span>
+        <span>Stok</span>
+      </button>
+      <button class="mobile-nav-item mobile-nav-camera" data-page="camera" type="button">
+        <span class="mobile-nav-icon" aria-hidden="true">▣</span>
+        <span>Kamera</span>
+      </button>
+      <button class="mobile-nav-item" data-page="products" type="button">
+        <span class="mobile-nav-icon" aria-hidden="true">□</span>
+        <span>Ürünler</span>
+      </button>
+      <button id="mobileMenuButton" class="mobile-nav-item mobile-menu-trigger" type="button" aria-haspopup="dialog" aria-controls="mobileMenuBackdrop">
+        <span class="mobile-nav-icon" aria-hidden="true">☰</span>
+        <span>Menü</span>
+      </button>
+    </nav>
+
+    <div id="mobileMenuBackdrop" class="mobile-menu-backdrop hidden" aria-hidden="true">
+      <section class="mobile-menu-sheet" role="dialog" aria-modal="true" aria-labelledby="mobileMenuTitle">
+        <header class="mobile-menu-header">
+          <div class="mobile-menu-brand">
+            <img src="https://sezgincuneyt07-star.github.io/hoca-mobilya-stock-pro/assets/hoca-logo.png?v=16" alt="Hoca Mobilya">
+            <div>
+              <strong id="mobileMenuTitle">HOCA MOBİLYA</strong>
+              <span id="mobileMenuUser">-</span>
+            </div>
+          </div>
+          <button id="closeMobileMenuButton" class="mobile-menu-close" type="button" aria-label="Menüyü kapat">×</button>
+        </header>
+
+        <div class="mobile-menu-grid">
+          <button class="mobile-menu-page" data-page="daily" type="button"><span>✓</span><strong>Günlük Kontrol</strong><small>Bugünkü işlemleri incele</small></button>
+          <button class="mobile-menu-page" data-page="bulk" type="button"><span>▤</span><strong>Toplu Stok</strong><small>Kategori stoklarını görüntüle</small></button>
+          <button class="mobile-menu-page admin-only" data-page="reports" type="button"><span>▥</span><strong>Stok Raporları</strong><small>Rapor ve dışa aktarma</small></button>
+          <button class="mobile-menu-page admin-only" data-page="movements" type="button"><span>↺</span><strong>Hareketler</strong><small>Stok işlem geçmişi</small></button>
+          <button class="mobile-menu-page admin-only" data-page="personnel" type="button"><span>♙</span><strong>Personel</strong><small>Kullanıcı ve yetki yönetimi</small></button>
+        </div>
+
+        <footer class="mobile-menu-footer">
+          <span>V16 • Stabil mobil kullanım</span>
+          <button id="mobileMenuLogoutButton" type="button">Çıkış Yap</button>
+        </footer>
+      </section>
+    </div>
+  </div>
+
+
+  <div id="newProductModal" class="modal-backdrop hidden" aria-hidden="true">
+      <div class="modal-card product-modal-card">
+        <div class="modal-heading">
+          <div>
+            <span class="section-label">YENİ KAYIT</span>
+            <h3>Yeni ürün ekle</h3>
+          </div>
+          <button id="closeNewProductButton" class="modal-close-button" type="button">×</button>
+        </div>
+  
+        <form id="newProductForm" class="product-form">
+          <label>
+            <span>Barkod *</span>
+            <input id="newProductBarcode" type="text" inputmode="numeric" required>
+          </label>
+  
+          <label>
+            <span>Ürün kodu *</span>
+            <input id="newProductCode" type="text" required>
+          </label>
+  
+          <label>
+            <span>Ürün türü *</span>
+            <select id="newProductType" required>
+              <option value="">Seçiniz</option>
+              <option value="Yatak">Yatak</option>
+              <option value="Baza">Baza</option>
+              <option value="Başlık">Başlık</option>
+              <option value="Ayak">Ayak</option>
+            </select>
+          </label>
+  
+          <label>
+            <span>Model *</span>
+            <input id="newProductModel" type="text" required>
+          </label>
+  
+          <label>
+            <span>Ölçü</span>
+            <input id="newProductSize" type="text" placeholder="Örn. 90x190">
+          </label>
+  
+          <label>
+            <span>Renk</span>
+            <input id="newProductColor" type="text" placeholder="Örn. Truva Vizon">
+          </label>
+  
+          <label>
+            <span>Başlangıç stoğu</span>
+            <input id="newProductStock" type="number" min="0" step="1" value="0">
+          </label>
+  
+          <label>
+            <span>Kritik stok seviyesi</span>
+            <input id="newProductCritical" type="number" min="0" step="1" value="0">
+          </label>
+  
+          <label class="product-form-wide">
+            <span>Durum</span>
+            <select id="newProductActive">
+              <option value="Evet">Aktif</option>
+              <option value="Hayır">Pasif</option>
+            </select>
+          </label>
+  
+          <div class="product-form-actions product-form-wide">
+            <button id="cancelNewProductButton" class="secondary-button" type="button">
+              Vazgeç
+            </button>
+            <button id="saveNewProductButton" class="primary-button" type="submit">
+              Ürünü Kaydet
+            </button>
+          </div>
+  
+          <p id="newProductMessage" class="stock-message product-form-wide"></p>
+        </form>
+      </div>
+    </div>
+
+  <div id="unknownProductModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card unknown-product-modal-card">
+      <div class="unknown-product-icon">!</div>
+      <span class="section-label">BARKOD KAYITLI DEĞİL</span>
+      <h3>Ürün kayıtlı değil</h3>
+      <p>Okutulan barkod: <strong id="unknownProductBarcode">-</strong></p>
+      <p class="unknown-product-help">Ürünü şimdi kaydederseniz ürün hızlı kamera onay listesine eklenir. Stok yalnızca son onay verildiğinde artırılır.</p>
+      <div class="unknown-product-actions">
+        <button id="continueUnknownProductButton" class="secondary-button" type="button">Taramaya Devam Et</button>
+        <button id="addUnknownProductButton" class="primary-button" type="button">Ürün Ekle</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="stockCameraModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card stock-camera-modal-card">
+      <div class="modal-heading">
+        <div>
+          <span class="section-label">STOK İŞLEMİ</span>
+          <h3>Kamera ile barkod tara</h3>
+          <p>Barkod okununca ürün stok formuna otomatik aktarılır.</p>
+        </div>
+
+        <button id="closeStockCameraButton" class="modal-close-button" type="button">×</button>
+      </div>
+
+      <div class="stock-camera-controls">
+        <select id="stockCameraDeviceSelect">
+          <option value="">Arka kamera (otomatik)</option>
+        </select>
+
+        <button id="stockCameraTorchButton" class="secondary-button" type="button" disabled>
+          Feneri Aç
+        </button>
+      </div>
+
+      <div class="camera-area stock-camera-view">
+        <video id="stockBarcodeCamera" playsinline muted></video>
+        <div class="camera-guide"><span></span></div>
+        <div id="stockCameraEngineBadge" class="camera-engine-badge">Tarayıcı hazırlanıyor</div>
+        <div id="stockCameraStatus" class="camera-status">Kamera hazırlanıyor...</div>
+      </div>
+
+      <p id="stockCameraMessage" class="stock-message"></p>
+
+      <div class="modal-actions">
+        <button id="cancelStockCameraButton" class="secondary-button" type="button">
+          Kapat
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="githubCameraShell" class="embedded-camera-shell hidden" aria-hidden="true">
+    <div class="embedded-camera-header">
+      <div>
+        <span class="section-label">CANLI BARKOD KAMERASI</span>
+        <strong id="embeddedCameraTitle">Kamera hazırlanıyor</strong>
+      </div>
+      <button id="closeGithubCameraButton" class="embedded-camera-close" type="button" aria-label="Kamerayı kapat">×</button>
+    </div>
+    <div id="hybridCameraConnection" class="hybrid-connection waiting">
+      <strong id="hybridConnectionTitle">Kamera hazırlanıyor</strong>
+      <span id="hybridConnectionText">Kamera aynı uygulama ekranında açılacak.</span>
+    </div>
+    <iframe
+      id="githubCameraFrame"
+      class="embedded-camera-frame"
+      title="HOCA MOBİLYA canlı barkod kamerası"
+      allow="camera *; microphone *; autoplay *; fullscreen *"
+      referrerpolicy="strict-origin-when-cross-origin"
+      src="about:blank"></iframe>
+  </div>
+
+  <?!= include("script"); ?>
+</body>
+</html>

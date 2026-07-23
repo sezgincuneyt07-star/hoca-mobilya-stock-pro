@@ -1,0 +1,4396 @@
+<script>
+
+/* Kamera sistemi koddan silinmedi. Tekrar açmak için false değerini true yapın. */
+const CAMERA_ENABLED = true;
+const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
+
+(() => {
+  "use strict";
+
+  const state = {
+    token: "",
+    user: null,
+    currentProduct: null,
+    cameraStream: null,
+    barcodeDetector: null,
+    cameraRunning: false,
+    cameraBusy: false,
+    lastCameraBarcode: "",
+    lastCameraScanAt: 0,
+    cameraScanCount: 0,
+    productSearchResults: [],
+    selectedManagementProduct: null,
+    productSearchTimer: null,
+    lastProductSearchQuery: "",
+    dailySearchTimer: null,
+    dailyView: "summary",
+    dailyPersonnelLoaded: false,
+    bulkSelectedType: "Yatak",
+    bulkProducts: [],
+    bulkSearchTimer: null,
+    cameraEngine: "",
+    zxingReader: null,
+    zxingControls: null,
+    cameraTrack: null,
+    torchEnabled: false,
+    cameraRecent: [],
+    stockCameraRunning: false,
+    stockCameraEngine: "",
+    stockCameraStream: null,
+    stockCameraTrack: null,
+    stockCameraDetector: null,
+    stockCameraReader: null,
+    stockCameraControls: null,
+    stockCameraTorchEnabled: false,
+    stockCameraBusy: false,
+    githubCameraWindow: null,
+    githubCameraReady: false,
+    githubCameraMode: "quick",
+    githubCameraQueue: [],
+    githubCameraProcessing: false,
+    githubCameraFrame: null,
+    pendingUnknownProduct: null,
+    newProductFromCamera: false,
+    newProductOrigin: "products",
+    personnelRecords: [],
+    selectedPersonnelRecord: null,
+    personnelSearchQuery: "",
+    movementRecords: [],
+    filteredMovementRecords: [],
+    movementSearchTimer: null,
+    stockSearchTimer: null,
+    stockSearchRequestId: 0,
+    stockSearchResults: [],
+    stockSearchActiveIndex: -1,
+    stockSelectedFromSuggestion: false,
+    productReportRecords: [],
+    filteredProductReportRecords: [],
+    productReportSearchTimer: null,
+    returnedCameraScan: null,
+    sameTabCameraBusy: false
+  };
+
+  const pageInfo = {
+    home: ["Ana Sayfa", "HOCA MOBİLYA stok yönetim sistemi"],
+    stock: ["Stok İşlemi", "Stok giriş ve çıkış işlemleri"],
+    camera: ["Hızlı Kamera", "Cihazda korunan liste ve güvenli son onay"],
+    products: ["Ürünler", "Ürün arama ve ürün yönetimi"],
+    daily: ["Günlük Kontrol", "Günlük stok hareketleri"],
+    bulk: ["Toplu Stok", "Ürün gruplarına göre stok listesi"],
+    reports: ["Stok Raporları", "Kategori bazlı ürün ve stok raporları"],
+    movements: ["Hareketler", "Tüm personellerin stok işlem geçmişi"],
+    personnel: ["Personel Yönetimi", "Personel ve yetki ayarları"]
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  const REMEMBERED_SESSION_KEY = "hoca_stok_remembered_session";
+
+  /*
+   * Güvenlik: Personel seçimi hiçbir zaman otomatik giriş yapmaz.
+   * PIN her yeni uygulama açılışında yeniden istenir.
+   * Eski sürümlerin bıraktığı oturum anahtarları da temizlenir.
+   */
+  function saveRememberedSession() {
+    clearRememberedSession();
+  }
+
+  function loadRememberedSessionToken() {
+    clearRememberedSession();
+    return "";
+  }
+
+  function clearRememberedSession() {
+    try {
+      localStorage.removeItem(REMEMBERED_SESSION_KEY);
+      localStorage.removeItem("hoca_stok_token");
+      sessionStorage.removeItem(REMEMBERED_SESSION_KEY);
+    } catch (error) {}
+  }
+
+  function applyCameraAvailability() {
+    if (CAMERA_ENABLED) return;
+
+    const style = document.createElement("style");
+    style.id = "camera-disabled-style";
+    style.textContent = `
+      .camera-temporarily-disabled {
+        opacity: .68;
+        cursor: not-allowed !important;
+        filter: grayscale(.25);
+      }
+      .camera-disabled-notice {
+        margin: 14px 0;
+        padding: 14px 16px;
+        border: 1px solid #f0b36a;
+        border-radius: 12px;
+        background: #fff7ed;
+        color: #8a4b08;
+        font-weight: 700;
+      }
+    `;
+    document.head.appendChild(style);
+
+    ["openStockCameraButton", "toggleCameraButton", "toggleTorchButton", "stockCameraTorchButton"].forEach(id => {
+      const button = $(id);
+      if (!button) return;
+      button.classList.add("camera-temporarily-disabled");
+      button.setAttribute("aria-disabled", "true");
+      button.title = "Kamera özelliği geçici olarak pasif durumda.";
+    });
+
+    const stockButton = $("openStockCameraButton");
+    if (stockButton) stockButton.textContent = "Canlı Kamera (Pasif)";
+
+    const quickButton = $("toggleCameraButton");
+    if (quickButton) quickButton.textContent = "Kamera Geçici Olarak Pasif";
+
+    const cameraPage = $("page-camera");
+    if (cameraPage && !$("cameraDisabledNotice")) {
+      const notice = document.createElement("div");
+      notice.id = "cameraDisabledNotice";
+      notice.className = "camera-disabled-notice";
+      notice.textContent = "Kamera özelliği geçici olarak pasif durumda. Menü ve kamera altyapısı korunmuştur.";
+      cameraPage.insertBefore(notice, cameraPage.firstChild);
+    }
+  }
+
+  function serverCall(functionName, ...args) {
+    return new Promise((resolve, reject) => {
+      const runner = google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => {
+          const wrapped = new Error(
+            error && error.message
+              ? error.message
+              : "Sunucu işlemi başarısız."
+          );
+          wrapped.code = error && error.code ? error.code : "SERVER_ERROR";
+          reject(wrapped);
+        });
+
+      runner[functionName](...args);
+    });
+  }
+
+  function showToast(message, type = "") {
+    const toast = $("toast");
+    toast.textContent = message;
+    toast.className = "toast " + type;
+
+    window.setTimeout(() => {
+      toast.classList.add("hidden");
+    }, 3000);
+  }
+
+  async function loadPersonnel() {
+    const select = $("personnelSelect");
+
+    try {
+      const personnelList = await serverCall("getPersonnel");
+
+      select.innerHTML =
+        '<option value="">Personel seçiniz</option>';
+
+      (personnelList || []).forEach((record) => {
+        const option = document.createElement("option");
+        option.value = record.personnel;
+        option.textContent =
+          record.personnel + " — " + record.role;
+        select.appendChild(option);
+      });
+
+      if (!personnelList || personnelList.length === 0) {
+        select.innerHTML =
+          '<option value="">Aktif personel bulunamadı</option>';
+      }
+    } catch (error) {
+      select.innerHTML =
+        '<option value="">Personel listesi alınamadı</option>';
+
+      $("loginMessage").textContent = error.message;
+    }
+  }
+
+  async function login() {
+    const personnel = $("personnelSelect").value;
+    const pin = $("pinInput").value.trim();
+    const button = $("loginButton");
+
+    $("loginMessage").textContent = "";
+
+    if (!personnel) {
+      $("loginMessage").textContent =
+        "Lütfen personel seçiniz.";
+      return;
+    }
+
+    if (!pin) {
+      $("loginMessage").textContent =
+        "Lütfen PIN giriniz.";
+      return;
+    }
+
+    button.disabled = true;
+    button.textContent = "Giriş yapılıyor...";
+
+    try {
+      const result = await serverCall(
+        "loginPersonnel",
+        personnel,
+        pin
+      );
+
+      if (!result || !result.success || !result.token) {
+        throw new Error(
+          result && result.message
+            ? result.message
+            : "Giriş yapılamadı."
+        );
+      }
+
+      state.token = result.token;
+
+      state.user = {
+        personnel: result.personnel,
+        role: result.role,
+        isAdmin: Boolean(result.isAdmin)
+      };
+
+      /* PIN saklanmaz; yalnızca 6 saatlik oturum anahtarı tutulur. */
+      saveRememberedSession(result.token, result.expiresIn);
+      showApplication();
+      showToast("Giriş başarılı.", "success");
+      await processReturnedCameraScan();
+    } catch (error) {
+      $("loginMessage").textContent = error.message;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Giriş Yap";
+    }
+  }
+
+  async function restoreSession() {
+    if (!state.token) {
+      showLogin();
+      return;
+    }
+
+    try {
+      const result = await serverCall(
+        "getSessionUser",
+        state.token
+      );
+
+      state.user = {
+        personnel: result.personnel,
+        role: result.role,
+        isAdmin: Boolean(result.isAdmin)
+      };
+
+      showApplication();
+    } catch (error) {
+      clearRememberedSession();
+      state.token = "";
+      state.user = null;
+      showLogin();
+    }
+  }
+
+  function showLogin() {
+    closeMobileMenu();
+    $("loginScreen").classList.remove("hidden");
+    $("appScreen").classList.add("hidden");
+
+    if ($("personnelSelect")) {
+      $("personnelSelect").value = "";
+    }
+
+    if ($("pinInput")) {
+      $("pinInput").value = "";
+    }
+
+    if ($("loginMessage")) {
+      $("loginMessage").textContent = "";
+    }
+  }
+
+  function showApplication() {
+    $("loginScreen").classList.add("hidden");
+    $("appScreen").classList.remove("hidden");
+
+    $("currentUser").textContent = state.user.personnel;
+    $("currentRole").textContent = state.user.role;
+    $("welcomeUser").textContent = state.user.personnel;
+    if ($("mobileMenuUser")) {
+      $("mobileMenuUser").textContent = state.user.personnel + " • " + state.user.role;
+    }
+
+    document
+      .querySelectorAll(".admin-only")
+      .forEach((element) => {
+        element.classList.toggle(
+          "hidden",
+          !state.user.isAdmin
+        );
+      });
+
+    loadDashboard(false);
+  }
+
+  async function logout() {
+    try {
+      if (state.token) {
+        await serverCall(
+          "logoutSession",
+          state.token
+        );
+      }
+    } catch (error) {
+      // Oturum zaten düşmüş olabilir.
+    }
+
+    stopCameraScanner();
+
+    sendCameraReply({
+      source: "HOCA_MOBILYA_APP",
+      type: "SESSION_CLOSED"
+    });
+    state.githubCameraWindow = null;
+    state.githubCameraFrame = null;
+    state.githubCameraReady = false;
+    state.githubCameraQueue = [];
+    state.pendingUnknownProduct = null;
+
+    clearRememberedSession();
+
+    state.token = "";
+    state.user = null;
+
+    $("pinInput").value = "";
+
+    showLogin();
+    showToast("Oturum kapatıldı.");
+  }
+
+  const GITHUB_CAMERA_URL =
+    "https://sezgincuneyt07-star.github.io/hoca-mobilya-stock-pro/";
+
+  const APPS_SCRIPT_URL =
+    "https://script.google.com/macros/s/AKfycbzKW87lp7ZpwzvrJr0W36rj_VCScP2MCZJBOdUnU4NX_i2K0fJeUUsjzZapnsT1kjrc/exec";
+
+  const GITHUB_CAMERA_ORIGIN =
+    "https://sezgincuneyt07-star.github.io";
+
+  function setHybridConnection(title, text, status = "waiting") {
+    const box = $("hybridCameraConnection");
+    if (!box) return;
+    $("hybridConnectionTitle").textContent = title;
+    $("hybridConnectionText").textContent = text;
+    box.className = "hybrid-connection " + status;
+  }
+
+  function isRunningInsideGithubApp() {
+    try {
+      return window.top !== window;
+    } catch (error) {
+      return true;
+    }
+  }
+
+  function getGithubCameraTarget() {
+    if (state.githubCameraWindow) {
+      return state.githubCameraWindow;
+    }
+
+    if (isRunningInsideGithubApp()) {
+      return window.top;
+    }
+
+    return null;
+  }
+
+  function openGithubCamera(mode = "quick") {
+    if (!CAMERA_ENABLED) {
+      showToast("Kamera özelliği geçici olarak pasif durumda.", "error");
+      return;
+    }
+
+    if (!state.token) {
+      showToast("Önce personel girişi yapın.", "error");
+      return;
+    }
+
+    const cameraMode = mode === "stock" ? "stock" : "quick";
+    state.githubCameraMode = cameraMode;
+    state.githubCameraReady = false;
+    sessionStorage.setItem("hoca_camera_mode", cameraMode);
+    saveRememberedSession(state.token, 21600);
+
+    if (isRunningInsideGithubApp()) {
+      window.top.postMessage(
+        {
+          source: "HOCA_MOBILYA_APP",
+          type: "OPEN_CAMERA",
+          mode: cameraMode,
+          personnel: state.user ? state.user.personnel : ""
+        },
+        GITHUB_CAMERA_ORIGIN
+      );
+
+      setHybridConnection(
+        "Kamera uygulama içinde açılıyor",
+        cameraMode === "quick"
+          ? "Barkodlar listeye eklenecek; stok son onaydan sonra değişecek."
+          : "Okunan barkod stok işlem ekranına aktarılacak.",
+        "waiting"
+      );
+
+      if ($("toggleCameraButton")) {
+        $("toggleCameraButton").textContent = "Kamera Açılıyor...";
+        $("toggleCameraButton").classList.add("active");
+      }
+      return;
+    }
+
+    showToast(
+      "Uygulama içi kamera için sistemi GitHub bağlantısından açın.",
+      "error"
+    );
+    setHybridConnection(
+      "GitHub uygulaması gerekli",
+      "Kamerayı aynı ekranda kullanmak için hoca-mobilya-stock-pro bağlantısını açın.",
+      "error"
+    );
+  }
+
+  function closeGithubCamera() {
+    const target = getGithubCameraTarget();
+
+    if (target) {
+      try {
+        target.postMessage(
+          { source: "HOCA_MOBILYA_APP", type: "CLOSE_CAMERA" },
+          GITHUB_CAMERA_ORIGIN
+        );
+      } catch (error) {}
+    }
+
+    state.githubCameraReady = false;
+    state.githubCameraWindow = null;
+
+    if ($("toggleCameraButton")) {
+      $("toggleCameraButton").textContent = "Canlı Kamerayı Başlat";
+      $("toggleCameraButton").classList.remove("active");
+    }
+  }
+
+  function sendCameraReply(payload) {
+    const target = getGithubCameraTarget();
+    if (!target) return;
+
+    try {
+      target.postMessage(payload, GITHUB_CAMERA_ORIGIN);
+    } catch (error) {}
+  }
+
+  function enqueueGithubBarcode(barcode, scanId) {
+    const cleanBarcode = String(barcode || "").trim();
+    if (!cleanBarcode) return;
+
+    state.githubCameraQueue.push({
+      barcode: cleanBarcode,
+      scanId: String(scanId || "")
+    });
+
+    processGithubCameraQueue();
+  }
+
+  async function processGithubCameraQueue() {
+    if (state.githubCameraProcessing || state.pendingUnknownProduct || !state.githubCameraQueue.length) return;
+
+    state.githubCameraProcessing = true;
+    const item = state.githubCameraQueue.shift();
+    const barcode = item.barcode;
+
+    $("cameraLastBarcode").textContent = barcode;
+    $("cameraLastResult").textContent = "Ürün kontrol ediliyor...";
+    setCameraMessage(barcode + " kontrol ediliyor...");
+
+    try {
+      const product = await serverCall(
+        "getProduct",
+        barcode,
+        state.token
+      );
+
+      if (!product) {
+        const notFoundError = new Error("Bu barkoda ait ürün bulunamadı.");
+        notFoundError.code = "PRODUCT_NOT_FOUND";
+        throw notFoundError;
+      }
+
+      if (String(product.active || "").toLocaleLowerCase("tr-TR") !== "evet") {
+        const passiveError = new Error("Bu ürün pasif durumdadır.");
+        passiveError.code = "PRODUCT_PASSIVE";
+        throw passiveError;
+      }
+
+      state.cameraScanCount += 1;
+      $("cameraScanCount").textContent = String(state.cameraScanCount);
+      $("cameraLastResult").textContent =
+        "Onay listesine eklendi • Mevcut stok: " + product.stock;
+
+      setCameraMessage(
+        "Ürün onay listesine eklendi. Stok henüz değişmedi.",
+        "success"
+      );
+      setHybridConnection(
+        "Kamera bağlı ve hazır",
+        "Barkodlar geçici listeye ekleniyor. Stok son onaydan sonra değişecek.",
+        "connected"
+      );
+
+      state.cameraRecent.unshift({
+        barcode,
+        newStock: product.stock,
+        message: (product.model || "Ürün") + " • Onay bekliyor",
+        time: new Date().toLocaleTimeString("tr-TR", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit"
+        })
+      });
+      renderCameraRecent();
+
+      sendCameraReply({
+        source: "HOCA_MOBILYA_APP",
+        type: "CAMERA_ITEM_RESULT",
+        scanId: item.scanId,
+        success: true,
+        barcode,
+        product,
+        message: "Ürün onay listesine eklendi."
+      });
+    } catch (error) {
+      $("cameraLastResult").textContent = "Hata: " + error.message;
+      setCameraMessage(error.message, "error");
+      playCameraBeep(false);
+
+      if (error.code === "PRODUCT_NOT_FOUND") {
+        state.pendingUnknownProduct = {
+          barcode,
+          scanId: item.scanId
+        };
+        openUnknownProductModal(barcode);
+        setHybridConnection(
+          "Ürün kaydı bekleniyor",
+          "Barkod kayıtlı değil. Ürünü ekleyin veya taramaya devam edin.",
+          "error"
+        );
+        sendCameraReply({
+          source: "HOCA_MOBILYA_APP",
+          type: "PRODUCT_REQUIRED",
+          scanId: item.scanId,
+          barcode,
+          message: error.message
+        });
+      } else {
+        sendCameraReply({
+          source: "HOCA_MOBILYA_APP",
+          type: "CAMERA_ITEM_RESULT",
+          scanId: item.scanId,
+          success: false,
+          barcode,
+          code: error.code || "PRODUCT_ERROR",
+          message: error.message
+        });
+      }
+    } finally {
+      state.githubCameraProcessing = false;
+      if (!state.pendingUnknownProduct) {
+        window.setTimeout(processGithubCameraQueue, 80);
+      }
+    }
+  }
+
+  function captureReturnedCameraScan() {
+    const params = new URLSearchParams(window.location.search);
+    const privateParams = new URLSearchParams(
+      String(window.location.hash || "").replace(/^#/, "")
+    );
+
+    const barcode = String(params.get("cameraBarcode") || "").trim();
+    const mode = params.get("cameraMode") === "stock" ? "stock" : "quick";
+    const cancelled = params.get("cameraCancelled") === "1";
+    const cameraToken = String(privateParams.get("cameraToken") || "").trim();
+
+    if (cameraToken) {
+      state.token = cameraToken;
+      saveRememberedSession(cameraToken, 21600);
+    }
+
+    if (barcode) {
+      state.returnedCameraScan = { barcode, mode };
+    } else if (cancelled) {
+      sessionStorage.removeItem("hoca_camera_mode");
+    }
+
+    if (barcode || cancelled || cameraToken) {
+      try {
+        window.history.replaceState(
+          {},
+          document.title,
+          window.location.pathname
+        );
+      } catch (error) {}
+    }
+  }
+
+  async function processReturnedCameraScan() {
+    if (!state.token || !state.returnedCameraScan || state.sameTabCameraBusy) return;
+
+    const scan = state.returnedCameraScan;
+    state.returnedCameraScan = null;
+    state.sameTabCameraBusy = true;
+
+    try {
+      if (scan.mode === "stock") {
+        openPage("stock");
+        await useScannedStockBarcode(scan.barcode);
+        showToast("Barkod stok işlem ekranına aktarıldı.", "success");
+        return;
+      }
+
+      openPage("camera");
+
+      if (!isRunningInsideGithubApp()) {
+        throw new Error(
+          "V16 hızlı kamera yalnızca GitHub uygulaması içinde çalışır. Doğrudan stok artırma güvenlik nedeniyle kapatıldı."
+        );
+      }
+
+      const product = await serverCall(
+        "getProduct",
+        scan.barcode,
+        state.token
+      );
+
+      if (!product) {
+        state.pendingUnknownProduct = {
+          barcode: scan.barcode,
+          scanId: "returned-" + Date.now()
+        };
+        openUnknownProductModal(scan.barcode);
+        return;
+      }
+
+      sendCameraReply({
+        source: "HOCA_MOBILYA_APP",
+        type: "ADD_PRODUCT_TO_BATCH",
+        product: product,
+        quantity: 1
+      });
+
+      setCameraMessage(
+        "Ürün güvenli onay listesine eklendi. Stok henüz değişmedi.",
+        "success"
+      );
+      showToast("Ürün hızlı kamera listesine eklendi.", "success");
+    } catch (error) {
+      setCameraMessage(error.message, "error");
+      showToast(error.message, "error");
+    } finally {
+      state.sameTabCameraBusy = false;
+      sessionStorage.removeItem("hoca_camera_mode");
+    }
+  }
+
+  async function handleGithubCameraMessage(event) {
+    if (!CAMERA_ENABLED) return;
+    if (event.origin !== GITHUB_CAMERA_ORIGIN) return;
+
+    const data = event.data || {};
+    if (data.source !== "HOCA_MOBILYA_CAMERA") return;
+
+    if (data.type === "CAMERA_READY") {
+      state.githubCameraWindow = event.source;
+      state.githubCameraFrame = $("githubCameraFrame");
+      state.githubCameraReady = true;
+      if ($("toggleCameraButton")) {
+        $("toggleCameraButton").textContent = "Kamerayı Kapat";
+        $("toggleCameraButton").classList.add("active");
+      }
+      setHybridConnection(
+        "Kamera bağlı ve hazır",
+        "Barkodlar listeye eklenir; stok yalnızca son onaydan sonra değişir.",
+        "connected"
+      );
+      sendCameraReply({
+        source: "HOCA_MOBILYA_APP",
+        type: "APP_READY",
+        personnel: state.user ? state.user.personnel : ""
+      });
+      return;
+    }
+
+    if (data.type === "BARCODE_SCANNED") {
+      const barcode = String(data.barcode || "").trim();
+      if (!barcode) return;
+      if (state.githubCameraMode === "stock") {
+        sendCameraReply({ source: "HOCA_MOBILYA_APP", type: "SCAN_ACCEPTED", scanId: data.scanId, barcode });
+        await useScannedStockBarcode(barcode);
+        closeGithubCamera();
+      } else {
+        enqueueGithubBarcode(barcode, data.scanId);
+      }
+      return;
+    }
+
+    if (data.type === "CONFIRM_CAMERA_BATCH") {
+      try {
+        const result = await serverCall(
+          "batchQuickStockIn",
+          Array.isArray(data.items) ? data.items : [],
+          String(data.requestId || ""),
+          state.token
+        );
+
+        sendCameraReply(Object.assign(
+          {
+            source: "HOCA_MOBILYA_APP",
+            type: "BATCH_STOCK_RESULT"
+          },
+          result || {
+            success: false,
+            message: "Toplu stok işlemi tamamlanamadı."
+          }
+        ));
+
+        if (result && result.success) {
+          state.cameraRecent = [];
+          state.cameraScanCount = 0;
+          $("cameraScanCount").textContent = "0";
+          renderCameraRecent();
+          $("cameraLastResult").textContent = result.message;
+          setCameraMessage(result.message, "success");
+          setHybridConnection(
+            "Toplu stok girişi tamamlandı",
+            "Yeni bir liste oluşturmak için barkod okutmaya devam edebilirsiniz.",
+            "connected"
+          );
+          await loadDashboard(false);
+        }
+      } catch (error) {
+        sendCameraReply({
+          source: "HOCA_MOBILYA_APP",
+          type: "BATCH_STOCK_RESULT",
+          success: false,
+          code: error.code || "BATCH_ERROR",
+          message: error.message || "Toplu stok işlemi tamamlanamadı."
+        });
+      }
+      return;
+    }
+
+    if (data.type === "ADD_UNKNOWN_PRODUCT") {
+      if (state.pendingUnknownProduct) {
+        addUnknownProduct();
+      }
+      return;
+    }
+
+    if (data.type === "SKIP_UNKNOWN_PRODUCT") {
+      if (state.pendingUnknownProduct) {
+        continueAfterUnknownProduct();
+      }
+      return;
+    }
+
+    if (data.type === "CAMERA_CLOSED") {
+      closeGithubCamera();
+      state.githubCameraReady = false;
+      setHybridConnection(
+        "Kamera kapatıldı",
+        "Onay bekleyen liste GitHub kamera ekranında korunur.",
+        "waiting"
+      );
+    }
+  }
+
+  function setMobileMenuOpen(isOpen) {
+    const backdrop = $("mobileMenuBackdrop");
+    if (!backdrop) return;
+    backdrop.classList.toggle("hidden", !isOpen);
+    backdrop.setAttribute("aria-hidden", isOpen ? "false" : "true");
+    document.body.classList.toggle("mobile-menu-open", Boolean(isOpen));
+  }
+
+  function closeMobileMenu() {
+    setMobileMenuOpen(false);
+  }
+
+  function openPage(pageName) {
+    if (
+      pageName !== "camera" &&
+      state.cameraRunning
+    ) {
+      stopCameraScanner();
+    }
+
+    if (
+      ["personnel", "movements"].includes(pageName) &&
+      !state.user.isAdmin
+    ) {
+      return;
+    }
+
+    document
+      .querySelectorAll(".page")
+      .forEach((page) => {
+        page.classList.remove("active");
+      });
+
+    document
+      .querySelectorAll(".menu-item, .mobile-nav-item[data-page], .mobile-menu-page")
+      .forEach((button) => {
+        button.classList.toggle(
+          "active",
+          button.dataset.page === pageName
+        );
+      });
+
+    const mobilePrimaryPages = ["home", "stock", "camera", "products"];
+    if ($("mobileMenuButton")) {
+      $("mobileMenuButton").classList.toggle(
+        "active",
+        !mobilePrimaryPages.includes(pageName)
+      );
+    }
+    closeMobileMenu();
+
+    $("page-" + pageName).classList.add("active");
+
+    $("pageTitle").textContent =
+      pageInfo[pageName][0];
+
+    $("pageSubtitle").textContent =
+      pageInfo[pageName][1];
+
+    if (pageName === "home") {
+      loadDashboard(false);
+    }
+
+    if (pageName === "stock") {
+      window.setTimeout(
+        () => $("stockBarcode").focus(),
+        50
+      );
+    }
+
+    if (pageName === "camera") {
+      setCameraMessage("Kamerayla Barkod Tara düğmesine basın.");
+      if (state.githubCameraWindow && !state.githubCameraWindow.closed) {
+        setHybridConnection(
+          "Kamera açık",
+          "Kamera sekmesi açık. Okutmaya devam edebilirsiniz.",
+          "connected"
+        );
+      }
+    }
+
+    if (pageName === "products") {
+      window.setTimeout(
+        () => $("productSearchInput").focus(),
+        50
+      );
+    }
+
+    if (pageName === "daily") {
+      initializeDailyPage();
+    }
+
+    if (pageName === "bulk") {
+      initializeBulkPage(false);
+    }
+
+    if (pageName === "reports") {
+      loadProductReport(false);
+    }
+
+    if (pageName === "movements") {
+      loadMovements(false);
+    }
+
+    if (pageName === "personnel") {
+      loadPersonnelManagement(false);
+    }
+  }
+
+
+
+  function setDashboardMessage(message, type = "") {
+    const element = $("dashboardMessage");
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "stock-message " + type;
+  }
+
+  function formatDashboardNumber(value) {
+    return new Intl.NumberFormat("tr-TR").format(Number(value) || 0);
+  }
+
+  function renderCriticalProducts(products) {
+    const list = $("criticalProductsList");
+    const loading = $("criticalProductsLoading");
+    const empty = $("criticalProductsEmpty");
+    const items = Array.isArray(products) ? products : [];
+
+    list.innerHTML = "";
+    loading.classList.add("hidden");
+    $("criticalProductBadge").textContent = items.length + " ürün";
+
+    if (!items.length) {
+      empty.classList.remove("hidden");
+      list.classList.add("hidden");
+      return;
+    }
+
+    empty.classList.add("hidden");
+    list.classList.remove("hidden");
+
+    items.slice(0, 30).forEach(product => {
+      const row = document.createElement("div");
+      row.className = "critical-product-row";
+
+      const main = document.createElement("div");
+      main.className = "critical-product-main";
+
+      const title = document.createElement("strong");
+      title.textContent = product.model || product.urunKodu || "Ürün";
+
+      const detail = document.createElement("span");
+      detail.textContent = [
+        product.tur,
+        product.olcu,
+        product.renk,
+        "Barkod: " + (product.barkod || "-")
+      ].filter(Boolean).join(" • ");
+
+      const stock = document.createElement("div");
+      stock.className = "critical-product-stock";
+      stock.innerHTML =
+        "<strong>" + formatDashboardNumber(product.stok) + "</strong>" +
+        "<span>Kritik: " + formatDashboardNumber(product.kritikStok) + "</span>";
+
+      main.appendChild(title);
+      main.appendChild(detail);
+      row.appendChild(main);
+      row.appendChild(stock);
+      list.appendChild(row);
+    });
+  }
+
+  async function loadDashboard(showNotice = false) {
+    if (!state.token) return;
+
+    const button = $("refreshDashboardButton");
+    button.disabled = true;
+    button.textContent = "Yükleniyor...";
+    setDashboardMessage("");
+
+    try {
+      const data = await serverCall("getDashboard", state.token);
+
+      $("dashboardTotalProducts").textContent = formatDashboardNumber(data.totalProducts);
+      $("dashboardTotalStock").textContent = formatDashboardNumber(data.totalStock);
+      $("dashboardCriticalCount").textContent = formatDashboardNumber(data.criticalCount);
+      $("dashboardYatak").textContent = formatDashboardNumber(data.yatak);
+      $("dashboardBaza").textContent = formatDashboardNumber(data.baza);
+      $("dashboardBaslik").textContent = formatDashboardNumber(data.baslik);
+      $("dashboardAyak").textContent = formatDashboardNumber(data.ayak);
+
+      renderCriticalProducts(data.kritik);
+
+      if (showNotice) {
+        setDashboardMessage("Dashboard verileri yenilendi.", "success");
+      }
+    } catch (error) {
+      $("criticalProductsLoading").classList.add("hidden");
+      setDashboardMessage("Dashboard yüklenemedi: " + error.message, "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = "Verileri Yenile";
+    }
+  }
+
+
+
+
+  function setBulkMessage(message, type = "") {
+    const element = $("bulkMessage");
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "stock-message " + type;
+  }
+
+  function getBulkTypeKey(type) {
+    const map = {
+      "Yatak": "yatak",
+      "Baza": "baza",
+      "Başlık": "baslik",
+      "Ayak": "ayak"
+    };
+    return map[type] || "";
+  }
+
+  function updateBulkSummaryCards(summary) {
+    const groups = [
+      ["yatak", "Yatak"],
+      ["baza", "Baza"],
+      ["baslik", "Baslik"],
+      ["ayak", "Ayak"]
+    ];
+
+    groups.forEach(([key, elementKey]) => {
+      const item = summary && summary[key]
+        ? summary[key]
+        : { productCount: 0, totalStock: 0 };
+
+      $("bulk" + elementKey + "Stock").textContent =
+        Number(item.totalStock || 0);
+
+      $("bulk" + elementKey + "Count").textContent =
+        Number(item.productCount || 0);
+    });
+  }
+
+  async function loadBulkSummary() {
+    const result = await serverCall(
+      "getBulkStockSummary",
+      state.token
+    );
+
+    if (!result || !result.success) {
+      throw new Error("Toplu stok özeti alınamadı.");
+    }
+
+    updateBulkSummaryCards(result.summary || {});
+  }
+
+  function getBulkStatus(product) {
+    const stock = Number(product.stock || 0);
+    const critical = Number(product.critical || 0);
+
+    if (stock === 0) {
+      return {
+        text: "Stok Yok",
+        className: "zero"
+      };
+    }
+
+    if (stock <= critical) {
+      return {
+        text: "Kritik",
+        className: "critical"
+      };
+    }
+
+    return {
+      text: "Normal",
+      className: ""
+    };
+  }
+
+  function getFilteredBulkProducts() {
+    const search =
+      $("bulkSearchInput").value.trim().toLocaleLowerCase("tr-TR");
+
+    const stockFilter = $("bulkStockFilter").value;
+
+    return state.bulkProducts.filter(product => {
+      const stock = Number(product.stock || 0);
+      const critical = Number(product.critical || 0);
+
+      const text = [
+        product.model,
+        product.code,
+        product.size,
+        product.color,
+        product.barcode
+      ].join(" ").toLocaleLowerCase("tr-TR");
+
+      const matchesSearch =
+        !search || text.includes(search);
+
+      let matchesStock = true;
+
+      if (stockFilter === "critical") {
+        matchesStock = stock > 0 && stock <= critical;
+      } else if (stockFilter === "zero") {
+        matchesStock = stock === 0;
+      } else if (stockFilter === "available") {
+        matchesStock = stock > 0;
+      }
+
+      return matchesSearch && matchesStock;
+    });
+  }
+
+  function renderBulkProducts() {
+    const products = getFilteredBulkProducts();
+    const body = $("bulkTableBody");
+
+    body.innerHTML = "";
+
+    $("bulkEmpty").classList.toggle(
+      "hidden",
+      products.length > 0
+    );
+
+    $("bulkTableWrap").classList.toggle(
+      "hidden",
+      products.length === 0
+    );
+
+    products.forEach(product => {
+      const row = document.createElement("tr");
+
+      const productCell = document.createElement("td");
+      productCell.className = "bulk-product-cell";
+
+      const model = document.createElement("strong");
+      model.textContent = product.model || "Ürün";
+
+      const type = document.createElement("span");
+      type.textContent = product.type || state.bulkSelectedType;
+
+      productCell.appendChild(model);
+      productCell.appendChild(type);
+
+      const stockCell = document.createElement("td");
+      stockCell.className = "bulk-stock-number";
+      stockCell.textContent = Number(product.stock || 0);
+
+      const statusData = getBulkStatus(product);
+      const statusCell = document.createElement("td");
+      const statusBadge = document.createElement("span");
+      statusBadge.className =
+        "bulk-status-badge " + statusData.className;
+      statusBadge.textContent = statusData.text;
+      statusCell.appendChild(statusBadge);
+
+      const actionCell = document.createElement("td");
+      const actionButton = document.createElement("button");
+      actionButton.type = "button";
+      actionButton.className = "bulk-row-action";
+      actionButton.textContent = "Stok İşlemi";
+      actionButton.addEventListener("click", () => {
+        $("stockBarcode").value = product.barcode;
+        openPage("stock");
+        findStockProduct(false);
+      });
+      actionCell.appendChild(actionButton);
+
+      row.appendChild(productCell);
+      row.appendChild(createDailyCell(product.code));
+      row.appendChild(createDailyCell(product.size));
+      row.appendChild(createDailyCell(product.color));
+      row.appendChild(createDailyCell(product.barcode));
+      row.appendChild(createDailyCell(Number(product.critical || 0)));
+      row.appendChild(stockCell);
+      row.appendChild(statusCell);
+      row.appendChild(actionCell);
+
+      body.appendChild(row);
+    });
+  }
+
+  function setActiveBulkTypeButton(type) {
+    document.querySelectorAll(".bulk-group-card").forEach(button => {
+      button.classList.toggle(
+        "active",
+        button.dataset.bulkType === type
+      );
+    });
+  }
+
+  async function loadBulkStock(type = state.bulkSelectedType, showSuccess = false) {
+    if (!state.token) return;
+
+    state.bulkSelectedType = type;
+    setActiveBulkTypeButton(type);
+
+    $("bulkSelectedType").textContent = type;
+    $("bulkListTitle").textContent = type + " stok listesi";
+    $("bulkLoading").classList.remove("hidden");
+    $("bulkEmpty").classList.add("hidden");
+    $("bulkTableWrap").classList.add("hidden");
+    $("refreshBulkButton").disabled = true;
+    setBulkMessage("");
+
+    try {
+      const result = await serverCall(
+        "getBulkStock",
+        type,
+        state.token
+      );
+
+      if (!result || !result.success) {
+        throw new Error("Toplu stok listesi alınamadı.");
+      }
+
+      state.bulkProducts = result.products || [];
+
+      $("bulkProductCount").textContent =
+        Number(result.productCount || 0);
+
+      $("bulkTotalStock").textContent =
+        Number(result.totalStock || 0);
+
+      renderBulkProducts();
+
+      if (showSuccess) {
+        showToast("Toplu stok verileri yenilendi.", "success");
+      }
+    } catch (error) {
+      state.bulkProducts = [];
+      $("bulkEmpty").classList.remove("hidden");
+      $("bulkEmpty").innerHTML =
+        "<strong>Veriler alınamadı</strong><span>" +
+        error.message +
+        "</span>";
+      setBulkMessage(error.message, "error");
+    } finally {
+      $("bulkLoading").classList.add("hidden");
+      $("refreshBulkButton").disabled = false;
+    }
+  }
+
+  async function initializeBulkPage(showSuccess = false) {
+    try {
+      await Promise.all([
+        loadBulkSummary(),
+        loadBulkStock(state.bulkSelectedType, showSuccess)
+      ]);
+    } catch (error) {
+      setBulkMessage(error.message, "error");
+    }
+  }
+
+  function getLocalDateKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return year + "-" + month + "-" + day;
+  }
+
+  function setDailyMessage(message, type = "") {
+    const element = $("dailyMessage");
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "stock-message " + type;
+  }
+
+  async function loadDailyPersonnelOptions() {
+    if (!state.user || !state.user.isAdmin || state.dailyPersonnelLoaded) {
+      return;
+    }
+
+    try {
+      const personnelList = await serverCall("getPersonnel");
+      const select = $("dailyPersonnelSelect");
+
+      select.innerHTML = '<option value="">Tüm personeller</option>';
+
+      (personnelList || []).forEach(record => {
+        const option = document.createElement("option");
+        option.value = record.personnel;
+        option.textContent = record.personnel;
+        select.appendChild(option);
+      });
+
+      state.dailyPersonnelLoaded = true;
+    } catch (error) {
+      setDailyMessage(error.message, "error");
+    }
+  }
+
+  function setDailyView(viewName) {
+    state.dailyView = viewName;
+
+    document.querySelectorAll(".daily-tab").forEach(button => {
+      button.classList.toggle(
+        "active",
+        button.dataset.dailyView === viewName
+      );
+    });
+
+    $("dailySummaryView").classList.toggle(
+      "hidden",
+      viewName !== "summary"
+    );
+
+    $("dailyDetailsView").classList.toggle(
+      "hidden",
+      viewName !== "details"
+    );
+  }
+
+  function createDailyCell(text, className = "") {
+    const cell = document.createElement("td");
+    cell.textContent = text === null || text === undefined || text === ""
+      ? "-"
+      : text;
+    if (className) cell.className = className;
+    return cell;
+  }
+
+  function renderDailySummary(rows) {
+    const body = $("dailySummaryBody");
+    body.innerHTML = "";
+
+    (rows || []).forEach(item => {
+      const row = document.createElement("tr");
+
+      const productCell = document.createElement("td");
+      productCell.className = "daily-product-name";
+
+      const productName = document.createElement("strong");
+      productName.textContent = item.model || "Ürün";
+
+      const productCode = document.createElement("span");
+      productCode.textContent = item.code || "-";
+
+      productCell.appendChild(productName);
+      productCell.appendChild(productCode);
+
+      const quantityCell = document.createElement("td");
+      const quantityBadge = document.createElement("span");
+      quantityBadge.className = "daily-quantity-badge";
+      quantityBadge.textContent = Number(item.totalQuantity || 0);
+      quantityCell.appendChild(quantityBadge);
+
+      row.appendChild(productCell);
+      row.appendChild(createDailyCell(item.type));
+      row.appendChild(createDailyCell(
+        [item.size, item.color].filter(Boolean).join(" / ")
+      ));
+      row.appendChild(createDailyCell(item.barcode));
+      row.appendChild(createDailyCell(Number(item.scanCount || 0)));
+      row.appendChild(quantityCell);
+
+      body.appendChild(row);
+    });
+  }
+
+  function renderDailyDetails(rows) {
+    const body = $("dailyDetailsBody");
+    body.innerHTML = "";
+
+    (rows || []).forEach(item => {
+      const row = document.createElement("tr");
+
+      const productCell = document.createElement("td");
+      productCell.className = "daily-product-name";
+
+      const productName = document.createElement("strong");
+      productName.textContent = item.model || "Ürün";
+
+      const productDetail = document.createElement("span");
+      productDetail.textContent = [
+        item.type,
+        item.size,
+        item.color
+      ].filter(Boolean).join(" • ");
+
+      productCell.appendChild(productName);
+      productCell.appendChild(productDetail);
+
+      const quantityCell = document.createElement("td");
+      const quantityBadge = document.createElement("span");
+      quantityBadge.className = "daily-quantity-badge";
+      quantityBadge.textContent = "+" + Number(item.quantity || 0);
+      quantityCell.appendChild(quantityBadge);
+
+      const dateValue = item.date ? new Date(item.date) : null;
+      const timeText = dateValue && !Number.isNaN(dateValue.getTime())
+        ? dateValue.toLocaleTimeString("tr-TR", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+          })
+        : item.dateText || "-";
+
+      row.appendChild(createDailyCell(timeText));
+      row.appendChild(createDailyCell(item.personnel));
+      row.appendChild(productCell);
+      row.appendChild(createDailyCell(item.barcode));
+      row.appendChild(quantityCell);
+      row.appendChild(createDailyCell(
+        Number(item.previousStock || 0) +
+        " → " +
+        Number(item.newStock || 0),
+        "daily-stock-change"
+      ));
+      row.appendChild(createDailyCell(item.source));
+
+      body.appendChild(row);
+    });
+  }
+
+  function updateDailySummaryCards(result) {
+    $("dailyTotalTransactions").textContent =
+      Number(result.totalTransactions || 0);
+
+    $("dailyTotalQuantity").textContent =
+      Number(result.totalQuantity || 0);
+
+    $("dailyUniqueProducts").textContent =
+      Array.isArray(result.summary) ? result.summary.length : 0;
+
+    $("dailySelectedPersonnel").textContent =
+      result.selectedPersonnel || "Tümü";
+  }
+
+  async function loadDailyEntries(showSuccess = false) {
+    if (!state.token) return;
+
+    window.clearTimeout(state.dailySearchTimer);
+
+    const filters = {
+      date: $("dailyDateInput").value || getLocalDateKey(),
+      personnel:
+        state.user && state.user.isAdmin
+          ? $("dailyPersonnelSelect").value
+          : "",
+      type: $("dailyTypeSelect").value,
+      search: $("dailySearchInput").value.trim()
+    };
+
+    $("dailyLoading").classList.remove("hidden");
+    $("dailyEmpty").classList.add("hidden");
+    $("dailySummaryView").classList.add("hidden");
+    $("dailyDetailsView").classList.add("hidden");
+    $("refreshDailyButton").disabled = true;
+    setDailyMessage("");
+
+    try {
+      const result = await serverCall(
+        "getDailyStockEntries",
+        filters,
+        state.token
+      );
+
+      if (!result || !result.success) {
+        throw new Error("Günlük kayıtlar alınamadı.");
+      }
+
+      renderDailySummary(result.summary || []);
+      renderDailyDetails(result.details || []);
+      updateDailySummaryCards(result);
+
+      const hasRows =
+        Array.isArray(result.details) &&
+        result.details.length > 0;
+
+      $("dailyEmpty").classList.toggle("hidden", hasRows);
+
+      if (hasRows) {
+        setDailyView(state.dailyView);
+      }
+
+      if (showSuccess) {
+        showToast("Günlük kayıtlar yenilendi.", "success");
+      }
+    } catch (error) {
+      $("dailyEmpty").classList.remove("hidden");
+      $("dailyEmpty").innerHTML =
+        "<strong>Veriler alınamadı</strong><span>" +
+        error.message +
+        "</span>";
+      setDailyMessage(error.message, "error");
+    } finally {
+      $("dailyLoading").classList.add("hidden");
+      $("refreshDailyButton").disabled = false;
+    }
+  }
+
+  async function initializeDailyPage() {
+    if (!$("dailyDateInput").value) {
+      $("dailyDateInput").value = getLocalDateKey();
+    }
+
+    await loadDailyPersonnelOptions();
+    await loadDailyEntries(false);
+  }
+
+  function setProductManagementMessage(message, type = "") {
+    const element = $("productManagementMessage");
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "stock-message " + type;
+  }
+
+  function setNewProductMessage(message, type = "") {
+    const element = $("newProductMessage");
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "stock-message " + type + " product-form-wide";
+  }
+
+  function clearManagementProductDetail() {
+    state.selectedManagementProduct = null;
+    $("managementProductEmpty").classList.remove("hidden");
+    $("managementProductDetail").classList.add("hidden");
+
+    document
+      .querySelectorAll(".product-search-result")
+      .forEach(element => element.classList.remove("active"));
+  }
+
+  function showManagementProductDetail(product, selectedElement = null) {
+    state.selectedManagementProduct = product;
+
+    $("managementProductEmpty").classList.add("hidden");
+    $("managementProductDetail").classList.remove("hidden");
+
+    $("managementProductType").textContent = product.type || "-";
+    $("managementProductModel").textContent = product.model || "Ürün";
+    $("managementProductBarcode").textContent = "Barkod: " + (product.barcode || "-");
+    $("managementProductCode").textContent = product.code || "-";
+    $("managementProductSize").textContent = product.size || "-";
+    $("managementProductColor").textContent = product.color || "-";
+    $("managementProductStock").textContent = Number(product.stock || 0);
+    $("managementProductCritical").textContent = Number(product.critical || 0);
+
+    const active = product.active !== "Hayır";
+    $("managementProductStatus").textContent = active ? "Aktif" : "Pasif";
+    $("managementProductStatus").classList.toggle("passive", !active);
+    $("toggleProductStatusButton").textContent = active ? "Pasife Al" : "Aktifleştir";
+
+    document
+      .querySelectorAll(".product-search-result")
+      .forEach(element => element.classList.remove("active"));
+
+    if (selectedElement) {
+      selectedElement.classList.add("active");
+    }
+
+    setProductManagementMessage("");
+  }
+
+  function renderProductSearchResults(products) {
+    const list = $("productsSearchList");
+    const empty = $("productsSearchEmpty");
+    const loading = $("productsSearchLoading");
+    const items = Array.isArray(products) ? products : [];
+
+    state.productSearchResults = items;
+    list.innerHTML = "";
+    loading.classList.add("hidden");
+    $("productResultCount").textContent = items.length + " ürün";
+
+    if (!items.length) {
+      list.classList.add("hidden");
+      empty.classList.remove("hidden");
+      empty.innerHTML = "<strong>Sonuç bulunamadı</strong><span>Arama ifadenizi kontrol edin.</span>";
+      clearManagementProductDetail();
+      return;
+    }
+
+    empty.classList.add("hidden");
+    list.classList.remove("hidden");
+
+    items.forEach(product => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "product-search-result";
+
+      const main = document.createElement("div");
+      main.className = "product-search-result-main";
+
+      const title = document.createElement("strong");
+      title.textContent = product.model || product.code || "Ürün";
+
+      const detail = document.createElement("span");
+      detail.textContent = [
+        product.type,
+        product.size,
+        product.color,
+        "Barkod: " + (product.barcode || "-")
+      ].filter(Boolean).join(" • ");
+
+      const stock = document.createElement("div");
+      stock.className = "product-search-result-stock";
+      stock.innerHTML =
+        "<strong>" + Number(product.stock || 0) + "</strong>" +
+        "<span>STOK</span>";
+
+      main.appendChild(title);
+      main.appendChild(detail);
+      button.appendChild(main);
+      button.appendChild(stock);
+
+      button.addEventListener("click", () => {
+        showManagementProductDetail(product, button);
+      });
+
+      list.appendChild(button);
+    });
+
+    showManagementProductDetail(items[0], list.firstElementChild);
+  }
+
+  async function searchProducts(force = false) {
+    const query = $("productSearchInput").value.trim();
+
+    if (!force && query === state.lastProductSearchQuery) {
+      return;
+    }
+
+    if (query.length < 2) {
+      state.lastProductSearchQuery = "";
+      $("productsSearchEmpty").classList.remove("hidden");
+      $("productsSearchEmpty").innerHTML =
+        "<strong>En az 2 karakter girin</strong><span>Barkod, model, ölçü veya renk yazabilirsiniz.</span>";
+      $("productsSearchList").classList.add("hidden");
+      $("productResultCount").textContent = "0 ürün";
+      clearManagementProductDetail();
+      return;
+    }
+
+    state.lastProductSearchQuery = query;
+
+    $("productsSearchLoading").classList.remove("hidden");
+    $("productsSearchEmpty").classList.add("hidden");
+    $("productsSearchList").classList.add("hidden");
+    $("searchProductsButton").disabled = true;
+
+    try {
+      const products = await serverCall("searchProduct", query, state.token);
+      renderProductSearchResults(products);
+    } catch (error) {
+      $("productsSearchLoading").classList.add("hidden");
+      $("productsSearchEmpty").classList.remove("hidden");
+      $("productsSearchEmpty").innerHTML =
+        "<strong>Arama yapılamadı</strong><span>" + error.message + "</span>";
+    } finally {
+      $("searchProductsButton").disabled = false;
+    }
+  }
+
+  function clearProductSearch() {
+    window.clearTimeout(state.productSearchTimer);
+    state.productSearchTimer = null;
+    state.lastProductSearchQuery = "";
+    $("productSearchInput").value = "";
+    $("productsSearchList").innerHTML = "";
+    $("productsSearchList").classList.add("hidden");
+    $("productsSearchLoading").classList.add("hidden");
+    $("productsSearchEmpty").classList.remove("hidden");
+    $("productsSearchEmpty").innerHTML =
+      "<strong>Arama yapın</strong><span>Ürün sonuçları burada listelenecek.</span>";
+    $("productResultCount").textContent = "0 ürün";
+    clearManagementProductDetail();
+    $("productSearchInput").focus();
+  }
+
+  function resetNewProductForm() {
+    $("newProductForm").reset();
+    $("newProductStock").value = "0";
+    $("newProductCritical").value = "0";
+    $("newProductActive").value = "Evet";
+    setNewProductMessage("");
+  }
+
+  function openNewProductModal(barcode = "", fromCamera = false, origin = "products") {
+    resetNewProductForm();
+    state.newProductFromCamera = Boolean(fromCamera);
+    state.newProductOrigin = fromCamera ? "camera" : String(origin || "products");
+
+    const cleanBarcode = String(barcode || "").trim();
+    if (cleanBarcode) {
+      $("newProductBarcode").value = cleanBarcode;
+      $("newProductBarcode").readOnly = Boolean(fromCamera);
+      $("newProductStock").value = "0";
+    } else {
+      $("newProductBarcode").readOnly = false;
+    }
+
+    $("newProductModal").classList.remove("hidden");
+    $("newProductModal").setAttribute("aria-hidden", "false");
+    window.setTimeout(() => {
+      (cleanBarcode ? $("newProductCode") : $("newProductBarcode")).focus();
+    }, 50);
+  }
+
+  function closeNewProductModal() {
+    const shouldResumeCamera =
+      state.newProductFromCamera &&
+      Boolean(state.pendingUnknownProduct);
+
+    $("newProductModal").classList.add("hidden");
+    $("newProductModal").setAttribute("aria-hidden", "true");
+    $("newProductBarcode").readOnly = false;
+    state.newProductFromCamera = false;
+    state.newProductOrigin = "products";
+    setNewProductMessage("");
+
+    if (shouldResumeCamera) {
+      continueAfterUnknownProduct();
+    }
+  }
+
+  function openUnknownProductModal(barcode) {
+    $("unknownProductBarcode").textContent = String(barcode || "-");
+    $("unknownProductModal").classList.remove("hidden");
+  }
+
+  function closeUnknownProductModal() {
+    $("unknownProductModal").classList.add("hidden");
+  }
+
+  function hideStockNotFoundActions() {
+    const panel = $("stockNotFoundActions");
+    if (panel) panel.classList.add("hidden");
+  }
+
+  function showStockNotFoundActions(barcode = "") {
+    const panel = $("stockNotFoundActions");
+    if (!panel) return;
+
+    const cleanBarcode = String(barcode || getStockBarcode() || "").trim();
+    const text = $("stockNotFoundBarcode");
+    if (text) text.textContent = cleanBarcode || "-";
+    panel.classList.remove("hidden");
+  }
+
+  function openStockNewProductModal() {
+    hideStockProductSuggestions();
+    const barcode = getStockBarcode();
+    openNewProductModal(barcode, false, "stock");
+  }
+
+  function retryStockProductSearch() {
+    hideStockNotFoundActions();
+    clearProductPreview();
+    setStockMessage("");
+    $("stockBarcode").focus();
+    $("stockBarcode").select();
+  }
+
+  function continueAfterUnknownProduct() {
+    const pending = state.pendingUnknownProduct;
+    closeUnknownProductModal();
+    if (pending) {
+      sendCameraReply({
+        source: "HOCA_MOBILYA_APP",
+        type: "SCAN_RESUME",
+        scanId: pending.scanId,
+        barcode: pending.barcode
+      });
+    }
+    state.pendingUnknownProduct = null;
+    setCameraMessage("Ürün eklenmeden geçildi. Sıradaki barkod bekleniyor.");
+    setHybridConnection(
+      "Kamera bağlı ve hazır",
+      "Sıradaki barkodu okutabilirsiniz.",
+      "connected"
+    );
+    window.setTimeout(processGithubCameraQueue, 80);
+  }
+
+  function addUnknownProduct() {
+    const pending = state.pendingUnknownProduct;
+    if (!pending) return;
+    closeUnknownProductModal();
+    openNewProductModal(pending.barcode, true, "camera");
+  }
+
+  async function saveNewProduct(event) {
+    event.preventDefault();
+
+    const productData = {
+      barcode: $("newProductBarcode").value.trim(),
+      code: $("newProductCode").value.trim(),
+      type: $("newProductType").value,
+      model: $("newProductModel").value.trim(),
+      size: $("newProductSize").value.trim(),
+      color: $("newProductColor").value.trim(),
+      stock: Number($("newProductStock").value || 0),
+      critical: Number($("newProductCritical").value || 0),
+      active: $("newProductActive").value
+    };
+
+    $("saveNewProductButton").disabled = true;
+    $("saveNewProductButton").textContent = "Kaydediliyor...";
+    setNewProductMessage("");
+
+    try {
+      const result = await serverCall("addProduct", productData, state.token);
+
+      if (!result || !result.success) {
+        throw new Error(result && result.message ? result.message : "Ürün kaydedilemedi.");
+      }
+
+      setNewProductMessage(result.message, "success");
+      $("productSearchInput").value = result.product.barcode;
+
+      const productOrigin = state.newProductOrigin;
+
+      if (state.newProductFromCamera && state.pendingUnknownProduct) {
+        const pending = state.pendingUnknownProduct;
+        const addedProduct = result.product;
+
+        state.pendingUnknownProduct = null;
+        state.newProductFromCamera = false;
+        state.newProductOrigin = "products";
+        $("newProductModal").classList.add("hidden");
+        $("newProductModal").setAttribute("aria-hidden", "true");
+        $("newProductBarcode").readOnly = false;
+        setNewProductMessage("");
+
+        $("cameraLastBarcode").textContent = pending.barcode;
+        $("cameraLastResult").textContent = "Yeni ürün onay listesine eklendi";
+
+        state.cameraRecent.unshift({
+          barcode: pending.barcode,
+          newStock: addedProduct.stock,
+          message: (addedProduct.model || "Yeni ürün") + " • Onay bekliyor",
+          time: new Date().toLocaleTimeString("tr-TR", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+          })
+        });
+        renderCameraRecent();
+
+        sendCameraReply({
+          source: "HOCA_MOBILYA_APP",
+          type: "PRODUCT_ADDED_TO_BATCH",
+          scanId: pending.scanId,
+          barcode: pending.barcode,
+          product: addedProduct,
+          message: "Yeni ürün kaydedildi ve onay listesine eklendi."
+        });
+
+        setCameraMessage(
+          "Yeni ürün kaydedildi ve onay listesine eklendi. Stok henüz değişmedi.",
+          "success"
+        );
+        setHybridConnection(
+          "Kamera yeniden açılıyor",
+          "Yeni ürün onay listesine eklendi. Sıradaki barkodu okutabilirsiniz.",
+          "connected"
+        );
+        await loadDashboard(false);
+      } else if (productOrigin === "stock") {
+        state.newProductOrigin = "products";
+        $("newProductModal").classList.add("hidden");
+        $("newProductModal").setAttribute("aria-hidden", "true");
+        $("newProductBarcode").readOnly = false;
+        setNewProductMessage("");
+
+        $("stockBarcode").value = result.product.barcode || productData.barcode;
+        hideStockNotFoundActions();
+        hideStockProductSuggestions();
+        showProductPreview(result.product);
+        $("stockQuantity").value = "1";
+        setStockMessage(
+          "Yeni ürün kaydedildi. İşlem türünü ve adedi kontrol ederek stok işlemini kaydedebilirsiniz.",
+          "success"
+        );
+        showToast("Yeni ürün stok işlemine hazırlandı.", "success");
+        await loadDashboard(false);
+        window.setTimeout(() => $("stockQuantity").focus(), 80);
+      } else {
+        window.setTimeout(async () => {
+          closeNewProductModal();
+          await searchProducts();
+          await loadDashboard(false);
+        }, 650);
+      }
+    } catch (error) {
+      setNewProductMessage(error.message, "error");
+    } finally {
+      $("saveNewProductButton").disabled = false;
+      $("saveNewProductButton").textContent = "Ürünü Kaydet";
+    }
+  }
+
+  async function toggleSelectedProductStatus() {
+    const product = state.selectedManagementProduct;
+
+    if (!product) return;
+
+    const newStatus = product.active === "Hayır" ? "Evet" : "Hayır";
+    const actionText = newStatus === "Evet" ? "aktifleştirmek" : "pasife almak";
+
+    if (!window.confirm(product.model + " ürününü " + actionText + " istediğinize emin misiniz?")) {
+      return;
+    }
+
+    const button = $("toggleProductStatusButton");
+    button.disabled = true;
+
+    try {
+      const result = await serverCall(
+        "adminSetProductStatus",
+        product.barcode,
+        newStatus,
+        state.token
+      );
+
+      if (!result || !result.success) {
+        throw new Error(result && result.message ? result.message : "Durum değiştirilemedi.");
+      }
+
+      product.active = newStatus;
+      showManagementProductDetail(product);
+      setProductManagementMessage(result.message, "success");
+
+      if (newStatus === "Hayır") {
+        window.setTimeout(searchProducts, 600);
+      }
+
+      await loadDashboard(false);
+    } catch (error) {
+      setProductManagementMessage(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function goToStockFromSelectedProduct() {
+    const product = state.selectedManagementProduct;
+    if (!product) return;
+
+    $("stockBarcode").value = product.barcode;
+    openPage("stock");
+    findStockProduct(false);
+  }
+
+  function setStockMessage(message, type = "") {
+    const element = $("stockMessage");
+    element.textContent = message || "";
+    element.className = "stock-message " + type;
+  }
+
+  function setStockButtonsDisabled(disabled) {
+    $("findProductButton").disabled = disabled;
+    $("saveStockButton").disabled = disabled;
+    $("quickStockButton").disabled = disabled;
+  }
+
+  function clearProductPreview() {
+    state.currentProduct = null;
+    $("productEmptyState").classList.remove("hidden");
+    $("productDetails").classList.add("hidden");
+  }
+
+  function showProductPreview(product) {
+    state.currentProduct = product;
+
+    $("productEmptyState").classList.add("hidden");
+    $("productDetails").classList.remove("hidden");
+
+    $("productTypeBadge").textContent =
+      product.type || "-";
+
+    $("productModel").textContent =
+      product.model || "Model bilgisi yok";
+
+    $("productBarcode").textContent =
+      "Barkod: " + (product.barcode || "-");
+
+    $("productCode").textContent =
+      product.code || "-";
+
+    $("productSize").textContent =
+      product.size || "-";
+
+    $("productColor").textContent =
+      product.color || "-";
+
+    $("productStock").textContent =
+      Number(product.stock || 0);
+
+    $("productCritical").textContent =
+      Number(product.critical || 0);
+
+    $("productStatus").textContent =
+      product.active === "Evet"
+        ? "Aktif"
+        : product.active || "Aktif";
+  }
+
+  function hideStockProductSuggestions() {
+    const panel = $("stockProductSuggestions");
+    if (!panel) return;
+    panel.classList.add("hidden");
+    panel.innerHTML = "";
+    state.stockSearchResults = [];
+    state.stockSearchActiveIndex = -1;
+    $("stockBarcode").setAttribute("aria-expanded", "false");
+  }
+
+  function setActiveStockSuggestion(index) {
+    const panel = $("stockProductSuggestions");
+    const items = panel ? Array.from(panel.querySelectorAll(".stock-product-suggestion")) : [];
+    if (!items.length) return;
+
+    const nextIndex = Math.max(0, Math.min(index, items.length - 1));
+    state.stockSearchActiveIndex = nextIndex;
+    items.forEach((item, itemIndex) => {
+      const active = itemIndex === nextIndex;
+      item.classList.toggle("active", active);
+      item.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    items[nextIndex].scrollIntoView({ block: "nearest" });
+  }
+
+  function selectStockSearchProduct(product) {
+    if (!product) return;
+    state.stockSelectedFromSuggestion = true;
+    $("stockBarcode").value = product.barcode || "";
+    hideStockProductSuggestions();
+    hideStockNotFoundActions();
+    showProductPreview(product);
+    setStockMessage("Ürün seçildi. İşlem adedini belirleyip kaydedebilirsiniz.", "success");
+    $("stockQuantity").focus();
+    $("stockQuantity").select();
+  }
+
+  function renderStockProductSuggestions(products, query) {
+    const panel = $("stockProductSuggestions");
+    if (!panel) return;
+
+    const items = Array.isArray(products) ? products : [];
+    state.stockSearchResults = items;
+    state.stockSearchActiveIndex = -1;
+    panel.innerHTML = "";
+    panel.classList.remove("hidden");
+    $("stockBarcode").setAttribute("aria-expanded", "true");
+
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "stock-suggestion-state";
+      empty.innerHTML = "<strong>Ürün bulunamadı</strong><span>“" + escapeHtml(query) + "” için eşleşme yok.</span>";
+      panel.appendChild(empty);
+      return;
+    }
+
+    items.forEach((product, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "stock-product-suggestion";
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", "false");
+
+      const main = document.createElement("div");
+      main.className = "stock-suggestion-main";
+
+      const name = document.createElement("strong");
+      name.textContent = product.model || product.code || "Ürün";
+
+      const detail = document.createElement("span");
+      detail.textContent = [
+        product.type,
+        product.size && "Ölçü: " + product.size,
+        product.color && "Renk: " + product.color,
+        product.code && "Kod: " + product.code
+      ].filter(Boolean).join(" • ");
+
+      const barcode = document.createElement("small");
+      barcode.textContent = "Barkod: " + (product.barcode || "-");
+
+      const stock = document.createElement("div");
+      stock.className = "stock-suggestion-stock";
+      stock.innerHTML = "<strong>" + Number(product.stock || 0) + "</strong><span>STOK</span>";
+
+      main.appendChild(name);
+      main.appendChild(detail);
+      main.appendChild(barcode);
+      button.appendChild(main);
+      button.appendChild(stock);
+
+      button.addEventListener("mouseenter", () => setActiveStockSuggestion(index));
+      button.addEventListener("mousedown", event => event.preventDefault());
+      button.addEventListener("click", () => selectStockSearchProduct(product));
+      panel.appendChild(button);
+    });
+  }
+
+  async function searchStockProducts() {
+    const query = $("stockBarcode").value.trim();
+    state.stockSelectedFromSuggestion = false;
+
+    if (query.length < 2) {
+      hideStockProductSuggestions();
+      return;
+    }
+
+    const requestId = ++state.stockSearchRequestId;
+    const panel = $("stockProductSuggestions");
+    panel.innerHTML = '<div class="stock-suggestion-state loading"><strong>Aranıyor...</strong><span>Ürünler kontrol ediliyor.</span></div>';
+    panel.classList.remove("hidden");
+    $("stockBarcode").setAttribute("aria-expanded", "true");
+
+    try {
+      const products = await serverCall("searchProduct", query, state.token);
+      if (requestId !== state.stockSearchRequestId) return;
+      renderStockProductSuggestions(products, query);
+    } catch (error) {
+      if (requestId !== state.stockSearchRequestId) return;
+      panel.innerHTML = '<div class="stock-suggestion-state error"><strong>Arama yapılamadı</strong><span>' + escapeHtml(error.message) + '</span></div>';
+      panel.classList.remove("hidden");
+    }
+  }
+
+  function getStockBarcode() {
+    return $("stockBarcode").value.trim();
+  }
+
+  function getStockQuantity() {
+    const quantity = Number(
+      $("stockQuantity").value
+    );
+
+    if (
+      !Number.isInteger(quantity) ||
+      quantity < 1
+    ) {
+      throw new Error(
+        "İşlem adedi en az 1 olmalıdır."
+      );
+    }
+
+    return quantity;
+  }
+
+  async function findStockProduct(showSuccessMessage = true) {
+    const barcode = getStockBarcode();
+
+    setStockMessage("");
+    hideStockNotFoundActions();
+
+    if (!barcode) {
+      clearProductPreview();
+      hideStockProductSuggestions();
+      setStockMessage(
+        "Barkod veya ürün bilgisi giriniz.",
+        "error"
+      );
+      $("stockBarcode").focus();
+      return null;
+    }
+
+    setStockButtonsDisabled(true);
+
+    try {
+      let product = await serverCall(
+        "getProduct",
+        barcode,
+        state.token
+      );
+
+      if (!product) {
+        const matches = await serverCall("searchProduct", barcode, state.token);
+        if (Array.isArray(matches) && matches.length === 1) {
+          product = matches[0];
+          $("stockBarcode").value = product.barcode || "";
+        } else if (Array.isArray(matches) && matches.length > 1) {
+          renderStockProductSuggestions(matches, barcode);
+          clearProductPreview();
+          setStockMessage("Birden fazla ürün bulundu. Lütfen listeden seçim yapın.", "error");
+          return null;
+        }
+      }
+
+      if (!product) {
+        clearProductPreview();
+        hideStockProductSuggestions();
+        showStockNotFoundActions(barcode);
+        setStockMessage(
+          "Bu barkod kayıtlı değil. Yeni ürün ekleyebilir veya barkodu tekrar kontrol edebilirsiniz.",
+          "error"
+        );
+        return null;
+      }
+
+      hideStockProductSuggestions();
+      hideStockNotFoundActions();
+
+      showProductPreview(product);
+
+      if (showSuccessMessage) {
+        setStockMessage(
+          "Ürün bulundu.",
+          "success"
+        );
+      }
+
+      return product;
+    } catch (error) {
+      clearProductPreview();
+      setStockMessage(
+        error.message,
+        "error"
+      );
+      return null;
+    } finally {
+      setStockButtonsDisabled(false);
+    }
+  }
+
+  async function saveStockOperation() {
+    const barcode = getStockBarcode();
+
+    if (!barcode) {
+      setStockMessage(
+        "Lütfen barkod giriniz.",
+        "error"
+      );
+      $("stockBarcode").focus();
+      return;
+    }
+
+    let quantity;
+
+    try {
+      quantity = getStockQuantity();
+    } catch (error) {
+      setStockMessage(
+        error.message,
+        "error"
+      );
+      return;
+    }
+
+    if (
+      !state.currentProduct ||
+      state.currentProduct.barcode !== barcode
+    ) {
+      const product = await findStockProduct(false);
+
+      if (!product) {
+        return;
+      }
+    }
+
+    const operation =
+      document.querySelector(
+        'input[name="stockOperation"]:checked'
+      ).value;
+
+    const functionName =
+      operation === "out"
+        ? "stockOut"
+        : "stockIn";
+
+    setStockButtonsDisabled(true);
+    setStockMessage("İşlem kaydediliyor...");
+
+    try {
+      const result = await serverCall(
+        functionName,
+        barcode,
+        quantity,
+        state.token
+      );
+
+      if (!result || !result.success) {
+        throw new Error(
+          result && result.message
+            ? result.message
+            : "Stok işlemi tamamlanamadı."
+        );
+      }
+
+      showProductPreview(result.product);
+
+      setStockMessage(
+        result.message +
+        " Yeni stok: " +
+        result.newStock,
+        "success"
+      );
+
+      showToast(
+        result.message,
+        "success"
+      );
+
+      $("stockQuantity").value = "1";
+      $("stockBarcode").focus();
+      $("stockBarcode").select();
+    } catch (error) {
+      setStockMessage(
+        error.message,
+        "error"
+      );
+
+      showToast(
+        error.message,
+        "error"
+      );
+    } finally {
+      setStockButtonsDisabled(false);
+    }
+  }
+
+  async function quickStockIn(
+    barcodeOverride = "",
+    fromCamera = false
+  ) {
+    const barcode =
+      String(barcodeOverride || getStockBarcode()).trim();
+
+    if (!barcode) {
+      setStockMessage("Listeye eklemek için barkod giriniz.", "error");
+      $("stockBarcode").focus();
+      return null;
+    }
+
+    if (!isRunningInsideGithubApp()) {
+      const message =
+        "Güvenli hızlı liste için uygulamayı GitHub bağlantısından açın. Doğrudan +1 stok girişi V16 sürümünde kapatılmıştır.";
+      setStockMessage(message, "error");
+      showToast(message, "error");
+      return null;
+    }
+
+    setStockButtonsDisabled(true);
+    setStockMessage("Ürün güvenli onay listesine ekleniyor...");
+
+    try {
+      let product = state.currentProduct;
+
+      if (!product || String(product.barcode || "") !== barcode) {
+        product = await serverCall(
+          "getProduct",
+          barcode,
+          state.token
+        );
+      }
+
+      if (!product) {
+        const error = new Error("Bu barkoda ait ürün bulunamadı.");
+        error.code = "PRODUCT_NOT_FOUND";
+        throw error;
+      }
+
+      sendCameraReply({
+        source: "HOCA_MOBILYA_APP",
+        type: "ADD_PRODUCT_TO_BATCH",
+        product: product,
+        quantity: 1
+      });
+
+      showProductPreview(product);
+      setStockMessage(
+        "Ürün hızlı kamera onay listesine eklendi. Stok henüz değişmedi.",
+        "success"
+      );
+      showToast("Ürün onay listesine eklendi.", "success");
+
+      return {
+        success: true,
+        product: product,
+        pendingApproval: true
+      };
+    } catch (error) {
+      setStockMessage(error.message, "error");
+
+      if (error && error.code === "PRODUCT_NOT_FOUND") {
+        showStockNotFoundActions(barcode);
+      }
+
+      showToast(error.message, "error");
+      return null;
+    } finally {
+      setStockButtonsDisabled(false);
+    }
+  }
+
+
+  async function decodeBarcodeFromImageFile(file) {
+    if (!file) throw new Error("Kamera görüntüsü seçilmedi.");
+
+    // Önce tarayıcının yerleşik barkod okuyucusunu dene.
+    if ("BarcodeDetector" in window && window.createImageBitmap) {
+      let bitmap = null;
+      try {
+        bitmap = await createImageBitmap(file);
+        const formats = ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "itf"];
+        const detector = new BarcodeDetector({ formats });
+        const results = await detector.detect(bitmap);
+        if (results && results.length && results[0].rawValue) {
+          return String(results[0].rawValue).trim();
+        }
+      } catch (error) {
+        // Yerleşik okuyucu başarısızsa ZXing ile devam et.
+      } finally {
+        if (bitmap && bitmap.close) bitmap.close();
+      }
+    }
+
+    if (!window.ZXingBrowser || !window.ZXingBrowser.BrowserMultiFormatReader) {
+      throw new Error("Barkod okuyucu yüklenemedi. İnternet bağlantısını kontrol edin.");
+    }
+
+    const imageUrl = URL.createObjectURL(file);
+    const reader = new window.ZXingBrowser.BrowserMultiFormatReader();
+    try {
+      const result = await reader.decodeFromImageUrl(imageUrl);
+      const text = result && result.getText ? result.getText() : "";
+      if (!text) throw new Error("Barkod bulunamadı.");
+      return String(text).trim();
+    } catch (error) {
+      throw new Error("Barkod okunamadı. Barkodu kadraja tam alın, ışığı artırın ve daha yakından tekrar çekin.");
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+      try { reader.reset(); } catch (error) {}
+    }
+  }
+
+
+  function openStockCameraCapture() {
+    const input = $("stockCameraCaptureInput");
+    input.value = "";
+    input.click();
+  }
+
+  async function handleStockCameraCapture(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    const button = $("openStockCameraButton");
+    button.disabled = true;
+    button.textContent = "Barkod okunuyor...";
+    setStockMessage("");
+
+    try {
+      const barcode = await decodeBarcodeFromImageFile(file);
+
+      $("stockBarcode").value = barcode;
+      playCameraBeep(true);
+
+      if (navigator.vibrate) {
+        navigator.vibrate([60, 40, 60]);
+      }
+
+      await findStockProduct(false);
+      $("stockQuantity").focus();
+    } catch (error) {
+      setStockMessage(error.message, "error");
+      playCameraBeep(false);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Kamerayla Tara";
+      event.target.value = "";
+    }
+  }
+
+  function setCameraMessage(message, type = "") {
+    const element = $("cameraMessage");
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "stock-message " + type;
+  }
+
+  function setCameraStatus(message, type = "") {
+    const status = $("cameraStatus");
+    if (!status) return;
+    status.textContent = message;
+    status.className = "camera-status " + type;
+  }
+
+  function setCameraEngine(name) {
+    state.cameraEngine = name;
+    const badge = $("cameraEngineBadge");
+    if (!badge) return;
+
+    if (name === "native") {
+      badge.textContent = "Hızlı tarayıcı";
+    } else if (name === "zxing") {
+      badge.textContent = "Uyumlu tarayıcı";
+    } else {
+      badge.textContent = "Tarayıcı hazırlanıyor";
+    }
+  }
+
+  function playCameraBeep(success = true) {
+    try {
+      const AudioContextClass =
+        window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+
+      const context = new AudioContextClass();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+
+      oscillator.frequency.value = success ? 880 : 230;
+      gain.gain.value = 0.05;
+
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + (success ? 0.09 : 0.18));
+      oscillator.addEventListener("ended", () => context.close());
+    } catch (error) {
+      // Ses desteklenmezse işlem sessiz devam eder.
+    }
+  }
+
+  async function loadCameraDevices() {
+    const select = $("cameraDeviceSelect");
+    if (!select || !navigator.mediaDevices) return;
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter(device => device.kind === "videoinput");
+      const currentValue = select.value;
+
+      select.innerHTML =
+        '<option value="">Arka kamera (otomatik)</option>';
+
+      cameras.forEach((camera, index) => {
+        const option = document.createElement("option");
+        option.value = camera.deviceId;
+        option.textContent =
+          camera.label || "Kamera " + (index + 1);
+        select.appendChild(option);
+      });
+
+      if (
+        currentValue &&
+        cameras.some(camera => camera.deviceId === currentValue)
+      ) {
+        select.value = currentValue;
+      }
+    } catch (error) {
+      // Kamera listesi alınamazsa otomatik seçim kullanılmaya devam eder.
+    }
+  }
+
+  function resetCameraSession() {
+    state.cameraBusy = false;
+    state.lastCameraBarcode = "";
+    state.lastCameraScanAt = 0;
+    state.cameraScanCount = 0;
+    state.cameraRecent = [];
+
+    $("cameraLastBarcode").textContent = "Henüz okutulmadı";
+    $("cameraLastResult").textContent = "Barkod bekleniyor";
+    $("cameraScanCount").textContent = "0";
+    $("cameraRecentList").innerHTML = "";
+    $("cameraRecentList").classList.add("hidden");
+    $("cameraRecentEmpty").classList.remove("hidden");
+  }
+
+  function renderCameraRecent() {
+    const list = $("cameraRecentList");
+    list.innerHTML = "";
+
+    if (!state.cameraRecent.length) {
+      list.classList.add("hidden");
+      $("cameraRecentEmpty").classList.remove("hidden");
+      return;
+    }
+
+    $("cameraRecentEmpty").classList.add("hidden");
+    list.classList.remove("hidden");
+
+    state.cameraRecent.slice(0, 20).forEach(item => {
+      const row = document.createElement("div");
+      row.className = "camera-recent-item";
+
+      const text = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = item.message || item.barcode;
+
+      const detail = document.createElement("span");
+      detail.textContent =
+        item.barcode + " • " + item.time;
+
+      text.appendChild(title);
+      text.appendChild(detail);
+
+      const stock = document.createElement("div");
+      stock.className = "camera-recent-stock";
+      stock.textContent = "Stok: " + item.newStock;
+
+      row.appendChild(text);
+      row.appendChild(stock);
+      list.appendChild(row);
+    });
+  }
+
+  async function processCameraBarcode(barcode, source = "Kamera") {
+    barcode = String(barcode || "").trim();
+    if (!barcode || state.cameraBusy) return;
+
+    const now = Date.now();
+    const cooldown = Number($("cameraCooldownSelect").value || 1100);
+    const sameBarcodeTooSoon =
+      barcode === state.lastCameraBarcode &&
+      now - state.lastCameraScanAt < cooldown;
+
+    if (sameBarcodeTooSoon) return;
+
+    state.cameraBusy = true;
+    state.lastCameraBarcode = barcode;
+    state.lastCameraScanAt = now;
+
+    $("cameraLastBarcode").textContent = barcode;
+    $("cameraLastResult").textContent = "Ürün kontrol ediliyor...";
+    setCameraStatus(barcode + " kontrol ediliyor...");
+
+    try {
+      if (!isRunningInsideGithubApp()) {
+        throw new Error(
+          "Güvenli hızlı kamera için uygulamayı GitHub bağlantısından açın. Doğrudan stok artırma kapalıdır."
+        );
+      }
+
+      const product = await serverCall(
+        "getProduct",
+        barcode,
+        state.token
+      );
+
+      if (!product) {
+        const productError = new Error("Bu barkoda ait ürün bulunamadı.");
+        productError.code = "PRODUCT_NOT_FOUND";
+        throw productError;
+      }
+
+      sendCameraReply({
+        source: "HOCA_MOBILYA_APP",
+        type: "ADD_PRODUCT_TO_BATCH",
+        product: product,
+        quantity: 1
+      });
+
+      state.cameraScanCount += 1;
+      $("cameraScanCount").textContent = String(state.cameraScanCount);
+      $("cameraLastResult").textContent = "Onay listesine eklendi";
+      setCameraStatus(
+        "Ürün onay listesine eklendi. Stok henüz değişmedi.",
+        "success"
+      );
+      setCameraMessage(
+        "Aynı ürünü yeniden okutabilirsiniz; stok yalnızca son onayda değişir.",
+        "success"
+      );
+
+      state.cameraRecent.unshift({
+        barcode: barcode,
+        newStock: product.stock,
+        message: (product.model || source) + " • Onay bekliyor",
+        time: new Date().toLocaleTimeString("tr-TR", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit"
+        })
+      });
+      renderCameraRecent();
+      playCameraBeep(true);
+    } catch (error) {
+      $("cameraLastResult").textContent = "Hata: " + error.message;
+      setCameraStatus(error.message, "error");
+      setCameraMessage(error.message, "error");
+      playCameraBeep(false);
+
+      if (error && error.code === "PRODUCT_NOT_FOUND") {
+        state.pendingUnknownProduct = {
+          barcode: barcode,
+          scanId: "native-" + Date.now()
+        };
+        openUnknownProductModal(barcode);
+      }
+    } finally {
+      window.setTimeout(() => {
+        state.cameraBusy = false;
+      }, 650);
+    }
+  }
+
+  async function startNativeCamera() {
+    let requestedFormats = [
+      "ean_13",
+      "ean_8",
+      "code_128",
+      "code_39",
+      "upc_a",
+      "upc_e",
+      "itf"
+    ];
+
+    if (BarcodeDetector.getSupportedFormats) {
+      const supportedFormats =
+        await BarcodeDetector.getSupportedFormats();
+
+      requestedFormats = requestedFormats.filter(
+        format => supportedFormats.includes(format)
+      );
+    }
+
+    state.barcodeDetector = requestedFormats.length
+      ? new BarcodeDetector({ formats: requestedFormats })
+      : new BarcodeDetector();
+
+    const selectedDevice = $("cameraDeviceSelect").value;
+    const videoConstraints = selectedDevice
+      ? { deviceId: { exact: selectedDevice } }
+      : {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        };
+
+    state.cameraStream =
+      await navigator.mediaDevices.getUserMedia({
+        video: videoConstraints,
+        audio: false
+      });
+
+    const video = $("barcodeCamera");
+    video.srcObject = state.cameraStream;
+    video.muted = true;
+    video.setAttribute("playsinline", "");
+    await video.play();
+
+    state.cameraTrack =
+      state.cameraStream.getVideoTracks()[0] || null;
+
+    setCameraEngine("native");
+    scanCameraFrame();
+  }
+
+  async function startZxingCamera() {
+    if (
+      !window.ZXingBrowser ||
+      !window.ZXingBrowser.BrowserMultiFormatReader
+    ) {
+      throw new Error(
+        "Uyumlu barkod okuyucu yüklenemedi. İnternet bağlantısını kontrol edin."
+      );
+    }
+
+    state.zxingReader =
+      new window.ZXingBrowser.BrowserMultiFormatReader();
+
+    const selectedDevice =
+      $("cameraDeviceSelect").value || undefined;
+
+    state.zxingControls =
+      await state.zxingReader.decodeFromVideoDevice(
+        selectedDevice,
+        $("barcodeCamera"),
+        (result, error, controls) => {
+          if (result) {
+            processCameraBarcode(
+              result.getText(),
+              "Kamera"
+            );
+          }
+        }
+      );
+
+    const stream = $("barcodeCamera").srcObject;
+    state.cameraStream = stream || null;
+    state.cameraTrack =
+      stream && stream.getVideoTracks
+        ? stream.getVideoTracks()[0] || null
+        : null;
+
+    setCameraEngine("zxing");
+  }
+
+  function updateTorchAvailability() {
+    const button = $("toggleTorchButton");
+    if (!button) return;
+
+    let supported = false;
+
+    try {
+      const capabilities =
+        state.cameraTrack &&
+        state.cameraTrack.getCapabilities
+          ? state.cameraTrack.getCapabilities()
+          : {};
+
+      supported = Boolean(capabilities.torch);
+    } catch (error) {
+      supported = false;
+    }
+
+    button.disabled = !supported;
+    button.textContent =
+      state.torchEnabled ? "Feneri Kapat" : "Feneri Aç";
+  }
+
+  async function toggleCameraTorch() {
+    if (!state.cameraTrack) return;
+
+    try {
+      state.torchEnabled = !state.torchEnabled;
+
+      await state.cameraTrack.applyConstraints({
+        advanced: [{ torch: state.torchEnabled }]
+      });
+
+      updateTorchAvailability();
+    } catch (error) {
+      state.torchEnabled = false;
+      updateTorchAvailability();
+      setCameraMessage(
+        "Bu cihazda kamera feneri kullanılamıyor.",
+        "error"
+      );
+    }
+  }
+
+  async function startCameraScanner() {
+    if (!CAMERA_ENABLED) {
+      showToast("Kamera özelliği geçici olarak pasif durumda.", "error");
+      return;
+    }
+
+    if (state.cameraRunning) return;
+
+    if (
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia
+    ) {
+      setCameraMessage(
+        "Bu tarayıcı kamera kullanımını desteklemiyor.",
+        "error"
+      );
+      return;
+    }
+
+    $("toggleCameraButton").disabled = true;
+    setCameraMessage("");
+    setCameraStatus("Kamera izni bekleniyor...");
+    setCameraEngine("");
+    $("cameraArea").classList.remove("hidden");
+
+    try {
+      resetCameraSession();
+      state.cameraRunning = true;
+
+      if ("BarcodeDetector" in window) {
+        try {
+          await startNativeCamera();
+        } catch (nativeError) {
+          await stopCameraScanner(false);
+          state.cameraRunning = true;
+          $("cameraArea").classList.remove("hidden");
+          await startZxingCamera();
+        }
+      } else {
+        await startZxingCamera();
+      }
+
+      $("toggleCameraButton").textContent = "Kamerayı Durdur";
+      $("toggleCameraButton").classList.add("active");
+      setCameraStatus("Barkodu çerçevenin içine tutun.");
+
+      await loadCameraDevices();
+      updateTorchAvailability();
+    } catch (error) {
+      await stopCameraScanner(false);
+
+      let message = error && error.message
+        ? error.message
+        : "Bilinmeyen kamera hatası";
+
+      if (error && error.name === "NotAllowedError") {
+        message =
+          "Kamera izni verilmedi. Tarayıcıdaki kilit simgesinden kamera iznini Açık yapın.";
+      } else if (error && error.name === "NotFoundError") {
+        message =
+          "Kullanılabilir kamera bulunamadı.";
+      } else if (error && error.name === "NotReadableError") {
+        message =
+          "Kamera başka bir uygulama tarafından kullanılıyor olabilir.";
+      } else if (error && error.name === "OverconstrainedError") {
+        message =
+          "Seçilen kamera ayarları cihazla uyumlu değil.";
+      } else if (error && (error.name === "SecurityError" || /permission policy|not allowed in this document/i.test(message))) {
+        message =
+          "Tarayıcı bu gömülü sayfada kamera kullanımını engelledi. Bağlantıyı Chrome/Safari içinde doğrudan açın; WhatsApp veya Instagram iç tarayıcısını kullanmayın.";
+      } else if (!window.isSecureContext) {
+        message =
+          "Kamera yalnızca güvenli HTTPS bağlantısında çalışır.";
+      }
+
+      setCameraMessage(
+        "Kamera açılamadı: " + message,
+        "error"
+      );
+      setCameraStatus("Kamera başlatılamadı.", "error");
+    } finally {
+      $("toggleCameraButton").disabled = false;
+    }
+  }
+
+  async function stopCameraScanner(hideArea = true) {
+    state.cameraRunning = false;
+    state.cameraBusy = false;
+    state.torchEnabled = false;
+
+    if (state.zxingControls) {
+      try {
+        state.zxingControls.stop();
+      } catch (error) {}
+    }
+
+    if (state.zxingReader) {
+      try {
+        state.zxingReader.reset();
+      } catch (error) {}
+    }
+
+    state.zxingControls = null;
+    state.zxingReader = null;
+
+    if (state.cameraStream) {
+      state.cameraStream
+        .getTracks()
+        .forEach(track => track.stop());
+    }
+
+    state.cameraStream = null;
+    state.cameraTrack = null;
+
+    const video = $("barcodeCamera");
+    if (video) video.srcObject = null;
+
+    if (hideArea && $("cameraArea")) {
+      $("cameraArea").classList.add("hidden");
+    }
+
+    $("toggleCameraButton").textContent = "Kamerayı Başlat";
+    $("toggleCameraButton").classList.remove("active");
+    $("toggleTorchButton").disabled = true;
+    $("toggleTorchButton").textContent = "Feneri Aç";
+  }
+
+  async function toggleCameraScanner() {
+    if (state.githubCameraReady) {
+      closeGithubCamera();
+      setCameraStatus("Kamera kapatıldı.");
+      return;
+    }
+
+    $("toggleCameraButton").textContent = "Kamera Açılıyor...";
+    $("toggleCameraButton").classList.add("active");
+    openGithubCamera("quick");
+  }
+
+  async function scanCameraFrame() {
+    if (!state.cameraRunning) {
+      return;
+    }
+
+    const video = $("barcodeCamera");
+
+    if (
+      state.cameraEngine === "native" &&
+      video &&
+      video.readyState >= 2 &&
+      !state.cameraBusy
+    ) {
+      try {
+        const barcodes =
+          await state.barcodeDetector.detect(video);
+
+        if (barcodes && barcodes.length) {
+          processCameraBarcode(
+            String(barcodes[0].rawValue || ""),
+            "Kamera"
+          );
+        }
+      } catch (error) {
+        // Bir kare okunamazsa sonraki karede devam edilir.
+      }
+    }
+
+    if (state.cameraEngine === "native") {
+      window.requestAnimationFrame(scanCameraFrame);
+    }
+  }
+
+  async function submitManualCameraBarcode() {
+    const input = $("manualCameraBarcode");
+    const barcode = input.value.trim();
+
+    if (!barcode) {
+      setCameraMessage("Barkod giriniz.", "error");
+      input.focus();
+      return;
+    }
+
+    await processCameraBarcode(barcode, "Manuel giriş");
+    input.value = "";
+    input.focus();
+  }
+
+
+  function setStockCameraMessage(message, type = "") {
+    const element = $("stockCameraMessage");
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "stock-message " + type;
+  }
+
+  function setStockCameraStatus(message, type = "") {
+    const element = $("stockCameraStatus");
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "camera-status " + type;
+  }
+
+  function setStockCameraEngine(name) {
+    state.stockCameraEngine = name;
+    $("stockCameraEngineBadge").textContent =
+      name === "native"
+        ? "Hızlı tarayıcı"
+        : name === "zxing"
+          ? "Uyumlu tarayıcı"
+          : "Tarayıcı hazırlanıyor";
+  }
+
+  async function loadStockCameraDevices() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter(device => device.kind === "videoinput");
+      const select = $("stockCameraDeviceSelect");
+      const selected = select.value;
+
+      select.innerHTML = '<option value="">Arka kamera (otomatik)</option>';
+
+      cameras.forEach((camera, index) => {
+        const option = document.createElement("option");
+        option.value = camera.deviceId;
+        option.textContent = camera.label || "Kamera " + (index + 1);
+        select.appendChild(option);
+      });
+
+      if (selected && cameras.some(camera => camera.deviceId === selected)) {
+        select.value = selected;
+      }
+    } catch (error) {}
+  }
+
+  function updateStockTorchButton() {
+    let supported = false;
+
+    try {
+      const capabilities =
+        state.stockCameraTrack &&
+        state.stockCameraTrack.getCapabilities
+          ? state.stockCameraTrack.getCapabilities()
+          : {};
+      supported = Boolean(capabilities.torch);
+    } catch (error) {}
+
+    $("stockCameraTorchButton").disabled = !supported;
+    $("stockCameraTorchButton").textContent =
+      state.stockCameraTorchEnabled ? "Feneri Kapat" : "Feneri Aç";
+  }
+
+  async function toggleStockCameraTorch() {
+    if (!state.stockCameraTrack) return;
+
+    try {
+      state.stockCameraTorchEnabled = !state.stockCameraTorchEnabled;
+      await state.stockCameraTrack.applyConstraints({
+        advanced: [{ torch: state.stockCameraTorchEnabled }]
+      });
+      updateStockTorchButton();
+    } catch (error) {
+      state.stockCameraTorchEnabled = false;
+      updateStockTorchButton();
+      setStockCameraMessage("Bu cihazda fener kullanılamıyor.", "error");
+    }
+  }
+
+  async function useScannedStockBarcode(barcode) {
+    barcode = String(barcode || "").trim();
+    if (!barcode || state.stockCameraBusy) return;
+
+    state.stockCameraBusy = true;
+    $("stockBarcode").value = barcode;
+    setStockCameraStatus("Barkod bulundu. Ürün getiriliyor...", "success");
+    playCameraBeep(true);
+
+    if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+
+    await closeStockCameraModal();
+    await findStockProduct(false);
+
+    window.setTimeout(() => {
+      state.stockCameraBusy = false;
+      $("stockQuantity").focus();
+    }, 450);
+  }
+
+  async function startStockNativeCamera() {
+    let formats = ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "itf"];
+
+    if (BarcodeDetector.getSupportedFormats) {
+      const supported = await BarcodeDetector.getSupportedFormats();
+      formats = formats.filter(format => supported.includes(format));
+    }
+
+    state.stockCameraDetector = formats.length
+      ? new BarcodeDetector({ formats })
+      : new BarcodeDetector();
+
+    const deviceId = $("stockCameraDeviceSelect").value;
+    const constraints = deviceId
+      ? { deviceId: { exact: deviceId } }
+      : {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        };
+
+    state.stockCameraStream = await navigator.mediaDevices.getUserMedia({
+      video: constraints,
+      audio: false
+    });
+
+    const video = $("stockBarcodeCamera");
+    video.srcObject = state.stockCameraStream;
+    video.muted = true;
+    await video.play();
+
+    state.stockCameraTrack =
+      state.stockCameraStream.getVideoTracks()[0] || null;
+
+    setStockCameraEngine("native");
+    scanStockCameraFrame();
+  }
+
+  async function startStockZxingCamera() {
+    if (!window.ZXingBrowser || !window.ZXingBrowser.BrowserMultiFormatReader) {
+      throw new Error("Barkod okuyucu yüklenemedi.");
+    }
+
+    state.stockCameraReader =
+      new window.ZXingBrowser.BrowserMultiFormatReader();
+
+    const deviceId = $("stockCameraDeviceSelect").value || undefined;
+
+    state.stockCameraControls =
+      await state.stockCameraReader.decodeFromVideoDevice(
+        deviceId,
+        $("stockBarcodeCamera"),
+        result => {
+          if (result) useScannedStockBarcode(result.getText());
+        }
+      );
+
+    state.stockCameraStream = $("stockBarcodeCamera").srcObject;
+    state.stockCameraTrack =
+      state.stockCameraStream &&
+      state.stockCameraStream.getVideoTracks
+        ? state.stockCameraStream.getVideoTracks()[0] || null
+        : null;
+
+    setStockCameraEngine("zxing");
+  }
+
+  async function startStockCameraScanner() {
+    if (!CAMERA_ENABLED) {
+      showToast("Kamera özelliği geçici olarak pasif durumda.", "error");
+      return;
+    }
+
+    if (state.stockCameraRunning) return;
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStockCameraMessage("Bu tarayıcı kamera kullanımını desteklemiyor.", "error");
+      return;
+    }
+
+    state.stockCameraRunning = true;
+    state.stockCameraBusy = false;
+    setStockCameraMessage("");
+    setStockCameraStatus("Kamera izni bekleniyor...");
+    setStockCameraEngine("");
+
+    try {
+      if ("BarcodeDetector" in window) {
+        try {
+          await startStockNativeCamera();
+        } catch (error) {
+          await stopStockCameraScanner();
+          state.stockCameraRunning = true;
+          await startStockZxingCamera();
+        }
+      } else {
+        await startStockZxingCamera();
+      }
+
+      setStockCameraStatus("Barkodu turuncu çerçevenin içine tutun.");
+      await loadStockCameraDevices();
+      updateStockTorchButton();
+    } catch (error) {
+      await stopStockCameraScanner();
+
+      let message = error.message || "Kamera başlatılamadı.";
+      if (error.name === "NotAllowedError") {
+        message = "Kamera izni verilmedi. Tarayıcıdan kamera iznini açın.";
+      } else if (error.name === "NotFoundError") {
+        message = "Kullanılabilir kamera bulunamadı.";
+      } else if (error.name === "NotReadableError") {
+        message = "Kamera başka bir uygulama tarafından kullanılıyor olabilir.";
+      }
+
+      setStockCameraStatus("Kamera başlatılamadı.", "error");
+      setStockCameraMessage(message, "error");
+    }
+  }
+
+  async function stopStockCameraScanner() {
+    state.stockCameraRunning = false;
+    state.stockCameraTorchEnabled = false;
+
+    if (state.stockCameraControls) {
+      try { state.stockCameraControls.stop(); } catch (error) {}
+    }
+
+    if (state.stockCameraReader) {
+      try { state.stockCameraReader.reset(); } catch (error) {}
+    }
+
+    if (state.stockCameraStream) {
+      state.stockCameraStream.getTracks().forEach(track => track.stop());
+    }
+
+    state.stockCameraControls = null;
+    state.stockCameraReader = null;
+    state.stockCameraStream = null;
+    state.stockCameraTrack = null;
+
+    const video = $("stockBarcodeCamera");
+    if (video) video.srcObject = null;
+
+    updateStockTorchButton();
+  }
+
+  async function scanStockCameraFrame() {
+    if (!state.stockCameraRunning) return;
+
+    const video = $("stockBarcodeCamera");
+
+    if (
+      state.stockCameraEngine === "native" &&
+      video.readyState >= 2 &&
+      !state.stockCameraBusy
+    ) {
+      try {
+        const results = await state.stockCameraDetector.detect(video);
+        if (results && results.length) {
+          useScannedStockBarcode(results[0].rawValue);
+        }
+      } catch (error) {}
+    }
+
+    if (state.stockCameraEngine === "native") {
+      requestAnimationFrame(scanStockCameraFrame);
+    }
+  }
+
+  async function openStockCameraModal() {
+    openGithubCamera("stock");
+  }
+
+  async function closeStockCameraModal() {
+    closeGithubCamera();
+  }
+
+  function updateOperationCards() {
+    const operation =
+      document.querySelector(
+        'input[name="stockOperation"]:checked'
+      ).value;
+
+    $("stockInOption").classList.toggle(
+      "selected",
+      operation === "in"
+    );
+
+    $("stockOutOption").classList.toggle(
+      "selected",
+      operation === "out"
+    );
+
+    $("saveStockButton").textContent =
+      operation === "out"
+        ? "Stok Çıkışını Kaydet"
+        : "Stok Girişini Kaydet";
+  }
+
+  function changeQuantity(amount) {
+    const current = Math.max(
+      1,
+      Number($("stockQuantity").value) || 1
+    );
+
+    $("stockQuantity").value =
+      Math.max(1, current + amount);
+  }
+
+
+  function setPersonnelMessage(id, message, type = "") {
+    const element = $(id);
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "stock-message " + type;
+  }
+
+  function formatPersonnelDate(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString("tr-TR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  }
+
+  function getPersonnelInitials(name) {
+    return String(name || "P").trim().split(/\s+/).slice(0, 2).map(part => part.charAt(0).toLocaleUpperCase("tr-TR")).join("") || "P";
+  }
+
+  function updatePersonnelEditorVisuals(record) {
+    if (!record) return;
+    $("editPersonnelAvatar").textContent = getPersonnelInitials(record.personnel);
+    $("editPersonnelHeaderName").textContent = record.personnel || "Seçili Personel";
+    $("editPersonnelRoleBadge").textContent = record.role || "Personel";
+    const statusBadge = $("editPersonnelStatusBadge");
+    statusBadge.textContent = record.active === "Evet" ? "Aktif" : "Pasif";
+    statusBadge.classList.toggle("passive", record.active !== "Evet");
+  }
+
+  function clearPersonnelEditor() {
+    state.selectedPersonnelRecord = null;
+    $("personnelEditEmpty").classList.remove("hidden");
+    $("editPersonnelForm").classList.add("hidden");
+    $("editPersonnelOriginalName").value = "";
+    $("editPersonnelName").value = "";
+    $("editPersonnelRole").value = "Personel";
+    $("editPersonnelActive").value = "Evet";
+    $("editPersonnelNewPin").value = "";
+    setPersonnelMessage("editPersonnelMessage", "");
+    renderPersonnelCards();
+  }
+
+  function selectPersonnelForEdit(personnelName) {
+    const record = state.personnelRecords.find(item => item.personnel === personnelName);
+    if (!record) return;
+    state.selectedPersonnelRecord = record;
+    $("personnelEditEmpty").classList.add("hidden");
+    $("editPersonnelForm").classList.remove("hidden");
+    $("editPersonnelOriginalName").value = record.personnel;
+    $("editPersonnelName").value = record.personnel;
+    $("editPersonnelRole").value = record.role || "Personel";
+    $("editPersonnelActive").value = record.active || "Evet";
+    $("editPersonnelNewPin").value = "";
+    updatePersonnelEditorVisuals(record);
+    setPersonnelMessage("editPersonnelMessage", "");
+    renderPersonnelCards();
+    window.setTimeout(() => $("editPersonnelName").focus(), 50);
+  }
+
+  function renderPersonnelCards() {
+    const list = $("personnelCardList");
+    const empty = $("personnelEmpty");
+    const query = (state.personnelSearchQuery || "").toLocaleLowerCase("tr-TR");
+    const records = (state.personnelRecords || []).filter(record => {
+      const haystack = [record.personnel, record.role, record.active === "Evet" ? "aktif" : "pasif"].join(" ").toLocaleLowerCase("tr-TR");
+      return !query || haystack.includes(query);
+    });
+    list.innerHTML = "";
+    $("personnelCountBadge").textContent = state.personnelRecords.length + " personel";
+    empty.classList.toggle("hidden", records.length > 0);
+    records.forEach(record => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "personnel-list-item" + (state.selectedPersonnelRecord && state.selectedPersonnelRecord.personnel === record.personnel ? " active" : "");
+      button.innerHTML = `<span class="personnel-list-avatar">${getPersonnelInitials(record.personnel)}</span><span class="personnel-list-main"><strong></strong><small></small></span><span class="personnel-list-side"><span class="personnel-mini-status ${record.active === "Evet" ? "" : "passive"}">${record.active === "Evet" ? "Aktif" : "Pasif"}</span><small>Düzenle ›</small></span>`;
+      button.querySelector("strong").textContent = record.personnel;
+      button.querySelector(".personnel-list-main small").textContent = (record.role || "Personel") + " • " + formatPersonnelDate(record.updatedAt);
+      button.addEventListener("click", () => selectPersonnelForEdit(record.personnel));
+      list.appendChild(button);
+    });
+  }
+
+  async function loadPersonnelManagement(showNotice = false) {
+    if (!state.user || !state.user.isAdmin) return;
+    $("personnelLoading").classList.remove("hidden");
+    $("personnelCardList").classList.add("hidden");
+    $("personnelEmpty").classList.add("hidden");
+    setPersonnelMessage("personnelMessage", "");
+    try {
+      const records = await serverCall("adminGetPersonnel", state.token);
+      state.personnelRecords = Array.isArray(records) ? records : [];
+      renderPersonnelCards();
+      $("personnelCardList").classList.remove("hidden");
+      if (state.selectedPersonnelRecord) {
+        const refreshed = state.personnelRecords.find(item => item.personnel === state.selectedPersonnelRecord.personnel);
+        if (refreshed) selectPersonnelForEdit(refreshed.personnel); else clearPersonnelEditor();
+      }
+      if (showNotice) setPersonnelMessage("personnelMessage", "Personel listesi yenilendi.", "success");
+    } catch (error) {
+      setPersonnelMessage("personnelMessage", "Personel listesi alınamadı: " + error.message, "error");
+    } finally {
+      $("personnelLoading").classList.add("hidden");
+    }
+  }
+
+  function normalizeMovementOperation(value) {
+    const text = String(value || "").toLocaleLowerCase("tr-TR");
+    if (text.includes("çık") || text === "out") return "Çıkış";
+    if (text.includes("düzelt") || text.includes("ayar") || text.includes("adjust")) return "Düzeltme";
+    return "Giriş";
+  }
+
+  function populateMovementPersonnelFilter() {
+    const select = $("movementPersonnelFilter");
+    const current = select.value;
+    const names = [...new Set(state.movementRecords.map(item => item.personnel).filter(Boolean))].sort((a,b) => a.localeCompare(b, "tr"));
+    select.innerHTML = '<option value="">Tüm personeller</option>';
+    names.forEach(name => { const option = document.createElement("option"); option.value = name; option.textContent = name; select.appendChild(option); });
+    select.value = names.includes(current) ? current : "";
+  }
+
+  function renderMovements() {
+    const personnel = $("movementPersonnelFilter").value;
+    const operation = $("movementOperationFilter").value;
+    const start = $("movementStartDate").value ? new Date($("movementStartDate").value + "T00:00:00") : null;
+    const end = $("movementEndDate").value ? new Date($("movementEndDate").value + "T23:59:59") : null;
+    const query = $("movementSearchInput").value.trim().toLocaleLowerCase("tr-TR");
+    const newest = $("movementSort").value !== "oldest";
+    const records = state.movementRecords.filter(item => {
+      const date = new Date(item.date);
+      const op = normalizeMovementOperation(item.operation);
+      const haystack = [item.model,item.type,item.barcode,item.code,item.color,item.size,item.personnel,item.source,item.description].join(" ").toLocaleLowerCase("tr-TR");
+      return (!personnel || item.personnel === personnel) && (!operation || op === operation) && (!start || date >= start) && (!end || date <= end) && (!query || haystack.includes(query));
+    }).sort((a,b) => newest ? new Date(b.date)-new Date(a.date) : new Date(a.date)-new Date(b.date));
+
+    state.filteredMovementRecords = records;
+
+    const tbody = $("movementsTableBody"); tbody.innerHTML = "";
+    $("movementTotalCount").textContent = records.length;
+    $("movementTotalIn").textContent = records.filter(r => normalizeMovementOperation(r.operation)==="Giriş").reduce((s,r)=>s+Number(r.quantity||0),0);
+    $("movementTotalOut").textContent = records.filter(r => normalizeMovementOperation(r.operation)==="Çıkış").reduce((s,r)=>s+Number(r.quantity||0),0);
+    $("movementPersonnelCount").textContent = new Set(records.map(r=>r.personnel).filter(Boolean)).size;
+    $("movementCountBadge").textContent = records.length + " kayıt";
+    $("movementsEmpty").classList.toggle("hidden", records.length > 0);
+    $("movementsTableWrap").classList.toggle("hidden", records.length === 0);
+
+    records.forEach(item => {
+      const row = document.createElement("tr");
+      const op = normalizeMovementOperation(item.operation);
+      const productName = [item.type, item.model].filter(Boolean).join(" - ") || "-";
+      row.innerHTML = `<td class="movement-date"></td><td><span class="movement-personnel"></span></td><td class="movement-product"><strong></strong><span></span></td><td class="movement-code"><strong></strong><span></span></td><td><span class="movement-operation ${op === "Çıkış" ? "out" : op === "Düzeltme" ? "adjust" : "in"}">${op}</span></td><td><strong class="movement-quantity"></strong></td><td><span class="movement-stock-change"></span></td><td><span class="movement-source"></span></td><td class="movement-description"></td><td class="movement-action-cell"></td>`;
+      row.querySelector(".movement-date").textContent = item.dateText || formatPersonnelDate(item.date);
+      row.querySelector(".movement-personnel").textContent = item.personnel || "-";
+      row.querySelector(".movement-product strong").textContent = productName;
+      row.querySelector(".movement-product span").textContent = [item.size,item.color].filter(Boolean).join(" • ") || "-";
+      row.querySelector(".movement-code strong").textContent = item.barcode || "-";
+      row.querySelector(".movement-code span").textContent = item.code || "-";
+      row.querySelector(".movement-quantity").textContent = (op === "Çıkış" ? "-" : "+") + Number(item.quantity || 0);
+      row.querySelector(".movement-stock-change").textContent = Number(item.previousStock || 0) + " → " + Number(item.newStock || 0);
+      row.querySelector(".movement-source").textContent = item.source || "-";
+      row.querySelector(".movement-description").textContent = item.description || "-";
+      const actionCell = row.querySelector(".movement-action-cell");
+      if (item.undone) {
+        const badge = document.createElement("span");
+        badge.className = "movement-undone-badge";
+        badge.textContent = "Geri alındı";
+        actionCell.appendChild(badge);
+        row.classList.add("movement-row-undone");
+      } else if (!String(item.source || "").toLocaleLowerCase("tr-TR").includes("geri alma")) {
+        const undoButton = document.createElement("button");
+        undoButton.type = "button";
+        undoButton.className = "movement-undo-button";
+        undoButton.textContent = "Geri Al";
+        undoButton.addEventListener("click", () => undoMovement(item));
+        actionCell.appendChild(undoButton);
+      } else {
+        actionCell.textContent = "-";
+      }
+      tbody.appendChild(row);
+    });
+  }
+
+
+
+  function normalizeReportText(value) {
+    return String(value == null ? "" : value).toLocaleLowerCase("tr-TR").trim();
+  }
+
+  function populateProductReportCategories() {
+    const select = $("productReportCategoryFilter");
+    const current = select.value;
+    const categories = Array.from(new Set(state.productReportRecords.map(item => item.type).filter(Boolean)))
+      .sort((a,b) => a.localeCompare(b, "tr"));
+    select.innerHTML = '<option value="">Tüm kategoriler</option>';
+    categories.forEach(category => {
+      const option = document.createElement("option");
+      option.value = category;
+      option.textContent = category;
+      select.appendChild(option);
+    });
+    if (categories.includes(current)) select.value = current;
+  }
+
+  function getFilteredProductReportRecords() {
+    const category = $("productReportCategoryFilter").value;
+    const stockFilter = $("productReportStockFilter").value;
+    const query = normalizeReportText($("productReportSearchInput").value);
+    const sort = $("productReportSort").value;
+    const records = state.productReportRecords.filter(item => {
+      const stock = Number(item.stock || 0);
+      const critical = Number(item.critical || 0);
+      const haystack = normalizeReportText([item.type,item.model,item.size,item.color,item.barcode,item.code].join(" "));
+      const stockMatch = !stockFilter ||
+        (stockFilter === "inStock" && stock > 0) ||
+        (stockFilter === "outOfStock" && stock === 0) ||
+        (stockFilter === "critical" && stock <= critical);
+      return (!category || item.type === category) && stockMatch && (!query || haystack.includes(query));
+    });
+    records.sort((a,b) => {
+      if (sort === "stockDesc") return Number(b.stock||0)-Number(a.stock||0);
+      if (sort === "stockAsc") return Number(a.stock||0)-Number(b.stock||0);
+      return [a.type,a.model,a.size,a.color].join(" ").localeCompare([b.type,b.model,b.size,b.color].join(" "), "tr");
+    });
+    return records;
+  }
+
+  function renderProductReport() {
+    const records = getFilteredProductReportRecords();
+    state.filteredProductReportRecords = records;
+    const groups = $("productReportGroups");
+    groups.innerHTML = "";
+    const grouped = records.reduce((acc,item) => {
+      const key = item.type || "Kategorisiz";
+      (acc[key] ||= []).push(item);
+      return acc;
+    }, {});
+    const categories = Object.keys(grouped).sort((a,b)=>a.localeCompare(b,"tr"));
+    $("productReportCategoryCount").textContent = categories.length;
+    $("productReportProductCount").textContent = records.length;
+    $("productReportTotalStock").textContent = records.reduce((sum,item)=>sum+Number(item.stock||0),0);
+    $("productReportCriticalCount").textContent = records.filter(item=>Number(item.stock||0)<=Number(item.critical||0)).length;
+    $("productReportEmpty").classList.toggle("hidden", records.length > 0);
+
+    categories.forEach(category => {
+      const items = grouped[category];
+      const section = document.createElement("section");
+      section.className = "product-report-group";
+      const totalStock = items.reduce((sum,item)=>sum+Number(item.stock||0),0);
+      section.innerHTML = `<div class="product-report-group-heading"><div><span class="section-label">KATEGORİ</span><h3></h3></div><div class="product-report-group-totals"><strong>${items.length}</strong><span>ürün çeşidi</span><strong>${totalStock}</strong><span>toplam stok</span></div></div><div class="product-report-table-wrap"><table class="product-report-table"><thead><tr><th>Ürün / Model</th><th>Ölçü</th><th>Renk</th><th>Ürün Kodu</th><th>Barkod</th><th>Kritik Seviye</th><th>Mevcut Stok</th><th>Durum</th></tr></thead><tbody></tbody></table></div>`;
+      section.querySelector("h3").textContent = category;
+      const tbody = section.querySelector("tbody");
+      items.forEach(item => {
+        const stock = Number(item.stock||0), critical = Number(item.critical||0);
+        const status = stock === 0 ? "Tükendi" : stock <= critical ? "Kritik" : "Yeterli";
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td><strong class="report-product-name"></strong><small class="report-product-type"></small></td><td></td><td></td><td></td><td></td><td class="report-number"></td><td class="report-number report-stock-value"></td><td><span class="report-status ${status === "Yeterli" ? "ok" : status === "Kritik" ? "critical" : "empty"}">${status}</span></td>`;
+        tr.querySelector(".report-product-name").textContent = item.model || "-";
+        tr.querySelector(".report-product-type").textContent = item.type || "-";
+        const cells=tr.querySelectorAll("td");
+        cells[1].textContent=item.size||"-"; cells[2].textContent=item.color||"-"; cells[3].textContent=item.code||"-"; cells[4].textContent=item.barcode||"-"; cells[5].textContent=critical; cells[6].textContent=stock;
+        tbody.appendChild(tr);
+      });
+      groups.appendChild(section);
+    });
+  }
+
+  async function loadProductReport(showNotice = false) {
+    if (!state.user || !state.user.isAdmin) return;
+    $("productReportLoading").classList.remove("hidden");
+    $("productReportGroups").innerHTML = "";
+    $("productReportEmpty").classList.add("hidden");
+    setPersonnelMessage("productReportMessage", "");
+    try {
+      const records = await serverCall("getProductStockReport", state.token);
+      state.productReportRecords = Array.isArray(records) ? records : [];
+      populateProductReportCategories();
+      renderProductReport();
+      if (showNotice) setPersonnelMessage("productReportMessage", "Stok raporu güncellendi.", "success");
+    } catch (error) {
+      setPersonnelMessage("productReportMessage", "Rapor yüklenemedi: " + error.message, "error");
+    } finally {
+      $("productReportLoading").classList.add("hidden");
+    }
+  }
+
+  function downloadProductReportCsv() {
+    const records = state.filteredProductReportRecords || [];
+    if (!records.length) return setPersonnelMessage("productReportMessage", "Çıktı alınacak ürün bulunamadı.", "error");
+    const headers=["Kategori","Ürün / Model","Ölçü","Renk","Ürün Kodu","Barkod","Kritik Seviye","Mevcut Stok","Durum"];
+    const lines=[headers.map(csvCell).join(";")];
+    records.forEach(item=>{ const stock=Number(item.stock||0), critical=Number(item.critical||0); const status=stock===0?"Tükendi":stock<=critical?"Kritik":"Yeterli"; lines.push([item.type,item.model,item.size,item.color,item.code,item.barcode,critical,stock,status].map(csvCell).join(";")); });
+    const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+    const link=document.createElement("a"); link.href=URL.createObjectURL(blob); link.download="hoca-mobilya-kategori-stok-raporu-"+new Date().toISOString().slice(0,10)+".csv"; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(link.href);
+    setPersonnelMessage("productReportMessage", "CSV / Excel raporu oluşturuldu.", "success");
+  }
+
+  function printProductReport() {
+    const records=state.filteredProductReportRecords||[];
+    if(!records.length) return setPersonnelMessage("productReportMessage","Çıktı alınacak ürün bulunamadı.","error");
+    const grouped=records.reduce((a,i)=>{(a[i.type||"Kategorisiz"]||=[]).push(i);return a;},{});
+    const categoryHtml=Object.keys(grouped).sort((a,b)=>a.localeCompare(b,"tr")).map(category=>{const items=grouped[category], total=items.reduce((s,i)=>s+Number(i.stock||0),0); const rows=items.map(i=>{const st=Number(i.stock||0),cr=Number(i.critical||0),status=st===0?"Tükendi":st<=cr?"Kritik":"Yeterli";return `<tr><td>${escapeReportHtml(i.model)}</td><td>${escapeReportHtml(i.size)}</td><td>${escapeReportHtml(i.color)}</td><td>${escapeReportHtml(i.code)}</td><td>${escapeReportHtml(i.barcode)}</td><td>${cr}</td><td><b>${st}</b></td><td>${status}</td></tr>`}).join("");return `<section><h2>${escapeReportHtml(category)} <small>${items.length} ürün • ${total} adet</small></h2><table><thead><tr><th>Ürün / Model</th><th>Ölçü</th><th>Renk</th><th>Kod</th><th>Barkod</th><th>Kritik</th><th>Stok</th><th>Durum</th></tr></thead><tbody>${rows}</tbody></table></section>`}).join("");
+    const w=window.open("","_blank"); if(!w) return setPersonnelMessage("productReportMessage","Rapor penceresi açılamadı. Açılır pencere iznini kontrol edin.","error");
+    w.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Kategori Stok Raporu</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:Arial,sans-serif;color:#222;margin:20px}button{padding:10px 16px;margin-bottom:15px}h1{margin:0 0 4px}.meta{color:#666;margin-bottom:18px}.summary{display:flex;gap:12px;margin:14px 0 20px}.summary div{border:1px solid #ddd;padding:9px 13px;border-radius:7px}section{page-break-inside:avoid;margin:0 0 22px}h2{font-size:17px;border-bottom:2px solid #e87524;padding-bottom:6px}h2 small{font-size:11px;color:#666;font-weight:normal}table{width:100%;border-collapse:collapse;font-size:9px}th,td{border:1px solid #d9d9d9;padding:6px;text-align:left}th{background:#f2f2f2}@media print{.no-print{display:none}body{margin:0}}</style></head><body><button class="no-print" onclick="window.print()">Yazdır / PDF Olarak Kaydet</button><h1>HOCA MOBİLYA STOK PRO</h1><div class="meta">Kategori Bazlı Stok Raporu • ${escapeReportHtml(new Date().toLocaleString("tr-TR"))}</div><div class="summary"><div><b>Kategori:</b> ${Object.keys(grouped).length}</div><div><b>Ürün çeşidi:</b> ${records.length}</div><div><b>Toplam stok:</b> ${records.reduce((s,i)=>s+Number(i.stock||0),0)}</div></div>${categoryHtml}</body></html>`); w.document.close(); w.focus();
+  }
+
+
+  function csvCell(value) {
+    return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"';
+  }
+
+  function getMovementReportRows() {
+    return Array.isArray(state.filteredMovementRecords) ? state.filteredMovementRecords : [];
+  }
+
+  function downloadMovementCsv() {
+    const records = getMovementReportRows();
+    if (!records.length) {
+      setPersonnelMessage("movementsMessage", "Rapor oluşturmak için filtreye uygun hareket bulunamadı.", "error");
+      return;
+    }
+    const headers = ["Tarih / Saat","Personel","Ürün Türü","Model","Ölçü","Renk","Barkod","Ürün Kodu","İşlem","Miktar","Önceki Stok","Yeni Stok","Kaynak","Açıklama","Durum"];
+    const lines = [headers.map(csvCell).join(";")];
+    records.forEach(item => {
+      lines.push([
+        item.dateText || formatPersonnelDate(item.date), item.personnel, item.type, item.model,
+        item.size, item.color, item.barcode, item.code, normalizeMovementOperation(item.operation),
+        Number(item.quantity || 0), Number(item.previousStock || 0), Number(item.newStock || 0),
+        item.source, item.description, item.undone ? "Geri alındı" : "Aktif"
+      ].map(csvCell).join(";"));
+    });
+    const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "hoca-mobilya-hareket-raporu-" + new Date().toISOString().slice(0,10) + ".csv";
+    document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(link.href);
+    setPersonnelMessage("movementsMessage", "CSV / Excel raporu oluşturuldu.", "success");
+  }
+
+  function escapeReportHtml(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[char]));
+  }
+
+  function printMovementReport() {
+    const records = getMovementReportRows();
+    if (!records.length) {
+      setPersonnelMessage("movementsMessage", "Rapor oluşturmak için filtreye uygun hareket bulunamadı.", "error");
+      return;
+    }
+    const totalIn = records.filter(r => normalizeMovementOperation(r.operation) === "Giriş").reduce((s,r)=>s+Number(r.quantity||0),0);
+    const totalOut = records.filter(r => normalizeMovementOperation(r.operation) === "Çıkış").reduce((s,r)=>s+Number(r.quantity||0),0);
+    const rows = records.map(item => `<tr><td>${escapeReportHtml(item.dateText || formatPersonnelDate(item.date))}</td><td>${escapeReportHtml(item.personnel)}</td><td>${escapeReportHtml([item.type,item.model,item.size,item.color].filter(Boolean).join(" • "))}</td><td>${escapeReportHtml(item.barcode)}</td><td>${escapeReportHtml(normalizeMovementOperation(item.operation))}</td><td>${Number(item.quantity||0)}</td><td>${Number(item.previousStock||0)} → ${Number(item.newStock||0)}</td><td>${escapeReportHtml(item.source)}</td><td>${escapeReportHtml(item.undone ? "Geri alındı" : "Aktif")}</td></tr>`).join("");
+    const reportWindow = window.open("", "_blank");
+    if (!reportWindow) {
+      setPersonnelMessage("movementsMessage", "Rapor penceresi açılamadı. Tarayıcı açılır pencere iznini kontrol edin.", "error");
+      return;
+    }
+    reportWindow.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Hareket Raporu</title><style>body{font-family:Arial,sans-serif;color:#222;margin:28px}h1{margin:0 0 6px;font-size:24px}.meta{color:#666;margin-bottom:18px}.summary{display:flex;gap:12px;margin:16px 0}.summary div{border:1px solid #ddd;border-radius:8px;padding:10px 14px}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #ddd;padding:7px;text-align:left;vertical-align:top}th{background:#f2f2f2}@media print{body{margin:10mm}.no-print{display:none}}</style></head><body><button class="no-print" onclick="window.print()">Yazdır / PDF Olarak Kaydet</button><h1>HOCA MOBİLYA STOK PRO</h1><div class="meta">Stok Hareket Raporu • Oluşturulma: ${escapeReportHtml(new Date().toLocaleString("tr-TR"))}</div><div class="summary"><div><b>Hareket:</b> ${records.length}</div><div><b>Toplam Giriş:</b> ${totalIn}</div><div><b>Toplam Çıkış:</b> ${totalOut}</div></div><table><thead><tr><th>Tarih</th><th>Personel</th><th>Ürün</th><th>Barkod</th><th>İşlem</th><th>Adet</th><th>Stok</th><th>Kaynak</th><th>Durum</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+    reportWindow.document.close();
+    reportWindow.focus();
+  }
+
+  async function undoMovement(item) {
+    if (!item || !item.movementId) return;
+    const productName = [item.type, item.model, item.size, item.color].filter(Boolean).join(" • ");
+    const confirmed = window.confirm(`Bu stok işlemini geri almak istediğinize emin misiniz?\n\n${productName}\n${normalizeMovementOperation(item.operation)}: ${Number(item.quantity || 0)} adet\nStok: ${Number(item.previousStock || 0)} → ${Number(item.newStock || 0)}\n\nİşlem silinmeyecek, geri alındı olarak işaretlenecektir.`);
+    if (!confirmed) return;
+    setPersonnelMessage("movementsMessage", "İşlem geri alınıyor...", "");
+    try {
+      const result = await serverCall("adminUndoMovement", item.movementId, state.token);
+      showToast(result.message || "İşlem geri alındı.", "success");
+      setPersonnelMessage("movementsMessage", result.message || "İşlem geri alındı.", "success");
+      await loadMovements(false);
+      if (state.currentProduct && state.currentProduct.barcode === result.barcode) await lookupProduct(result.barcode, false);
+    } catch (error) {
+      setPersonnelMessage("movementsMessage", "İşlem geri alınamadı: " + error.message, "error");
+      showToast(error.message, "error");
+    }
+  }
+
+  async function loadMovements(showNotice = false) {
+    if (!state.user || !state.user.isAdmin) return;
+    $("movementsLoading").classList.remove("hidden");
+    $("movementsTableWrap").classList.add("hidden");
+    $("movementsEmpty").classList.add("hidden");
+    setPersonnelMessage("movementsMessage", "");
+    try {
+      const records = await serverCall("getRecentMovements", { limit: 500 }, state.token);
+      state.movementRecords = Array.isArray(records) ? records : [];
+      populateMovementPersonnelFilter();
+      renderMovements();
+      if (showNotice) setPersonnelMessage("movementsMessage", "Hareket listesi yenilendi.", "success");
+    } catch (error) {
+      setPersonnelMessage("movementsMessage", "Hareketler alınamadı: " + error.message, "error");
+    } finally {
+      $("movementsLoading").classList.add("hidden");
+    }
+  }
+
+  async function addPersonnel(event) {
+    event.preventDefault();
+    const button = $("addPersonnelButton");
+    const data = {
+      personnel: $("newPersonnelName").value.trim(),
+      pin: $("newPersonnelPin").value.trim(),
+      role: $("newPersonnelRole").value,
+      active: $("newPersonnelActive").value
+    };
+
+    setPersonnelMessage("newPersonnelMessage", "");
+    button.disabled = true;
+    button.textContent = "Ekleniyor...";
+
+    try {
+      const result = await serverCall("adminAddPersonnel", data, state.token);
+      if (!result || !result.success) {
+        throw new Error(result && result.message ? result.message : "Personel eklenemedi.");
+      }
+
+      $("newPersonnelForm").reset();
+      $("newPersonnelRole").value = "Personel";
+      $("newPersonnelActive").value = "Evet";
+      setPersonnelMessage("newPersonnelMessage", result.message, "success");
+      await loadPersonnelManagement(false);
+      await loadPersonnel();
+    } catch (error) {
+      setPersonnelMessage("newPersonnelMessage", error.message, "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = "Personeli Ekle";
+    }
+  }
+
+  async function updatePersonnel(event) {
+    event.preventDefault();
+    const button = $("updatePersonnelButton");
+    const originalPersonnel = $("editPersonnelOriginalName").value.trim();
+    const data = {
+      originalPersonnel,
+      personnel: $("editPersonnelName").value.trim(),
+      role: $("editPersonnelRole").value,
+      active: $("editPersonnelActive").value
+    };
+
+    button.disabled = true;
+    button.textContent = "Güncelleniyor...";
+    setPersonnelMessage("editPersonnelMessage", "");
+
+    try {
+      const result = await serverCall("adminUpdatePersonnel", data, state.token);
+      if (!result || !result.success) {
+        throw new Error(result && result.message ? result.message : "Personel güncellenemedi.");
+      }
+
+      state.selectedPersonnelRecord = { personnel: data.personnel };
+      setPersonnelMessage("editPersonnelMessage", result.message, "success");
+      await loadPersonnelManagement(false);
+      await loadPersonnel();
+    } catch (error) {
+      setPersonnelMessage("editPersonnelMessage", error.message, "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = "Bilgileri Güncelle";
+    }
+  }
+
+  async function changePersonnelPin() {
+    const personnel = $("editPersonnelOriginalName").value.trim();
+    const newPin = $("editPersonnelNewPin").value.trim();
+    const button = $("changePersonnelPinButton");
+
+    if (!personnel) {
+      setPersonnelMessage("editPersonnelMessage", "Önce bir personel seçin.", "error");
+      return;
+    }
+
+    if (!newPin) {
+      setPersonnelMessage("editPersonnelMessage", "Yeni PIN girilmelidir.", "error");
+      return;
+    }
+
+    button.disabled = true;
+    button.textContent = "PIN değiştiriliyor...";
+    setPersonnelMessage("editPersonnelMessage", "");
+
+    try {
+      const result = await serverCall("adminChangePersonnelPin", personnel, newPin, state.token);
+      if (!result || !result.success) {
+        throw new Error(result && result.message ? result.message : "PIN değiştirilemedi.");
+      }
+      $("editPersonnelNewPin").value = "";
+      setPersonnelMessage("editPersonnelMessage", result.message, "success");
+    } catch (error) {
+      setPersonnelMessage("editPersonnelMessage", error.message, "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = "PIN'i Değiştir";
+    }
+  }
+
+  function bindEvents() {
+    $("loginButton").addEventListener(
+      "click",
+      login
+    );
+
+    $("pinInput").addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Enter") {
+          login();
+        }
+      }
+    );
+
+    $("personnelSelect").addEventListener(
+      "change",
+      () => {
+        $("pinInput").value = "";
+        $("loginMessage").textContent = "";
+        if ($("personnelSelect").value) {
+          window.setTimeout(() => $("pinInput").focus(), 40);
+        }
+      }
+    );
+
+    $("logoutButton").addEventListener(
+      "click",
+      logout
+    );
+
+    $("refreshDashboardButton").addEventListener(
+      "click",
+      () => loadDashboard(true)
+    );
+
+    document
+      .querySelectorAll("[data-dashboard-page]")
+      .forEach(button => {
+        button.addEventListener(
+          "click",
+          () => openPage(button.dataset.dashboardPage)
+        );
+      });
+
+    $("refreshBulkButton").addEventListener(
+      "click",
+      () => initializeBulkPage(true)
+    );
+
+    document.querySelectorAll(".bulk-group-card").forEach(button => {
+      button.addEventListener("click", () => {
+        $("bulkSearchInput").value = "";
+        $("bulkStockFilter").value = "all";
+        loadBulkStock(button.dataset.bulkType, false);
+      });
+    });
+
+    $("bulkSearchInput").addEventListener(
+      "input",
+      () => {
+        window.clearTimeout(state.bulkSearchTimer);
+        state.bulkSearchTimer = window.setTimeout(
+          renderBulkProducts,
+          250
+        );
+      }
+    );
+
+    $("bulkStockFilter").addEventListener(
+      "change",
+      renderBulkProducts
+    );
+
+    $("refreshDailyButton").addEventListener(
+      "click",
+      () => loadDailyEntries(true)
+    );
+
+    $("dailyDateInput").addEventListener(
+      "change",
+      () => loadDailyEntries(false)
+    );
+
+    $("dailyPersonnelSelect").addEventListener(
+      "change",
+      () => loadDailyEntries(false)
+    );
+
+    $("dailyTypeSelect").addEventListener(
+      "change",
+      () => loadDailyEntries(false)
+    );
+
+    $("dailySearchInput").addEventListener(
+      "input",
+      () => {
+        window.clearTimeout(state.dailySearchTimer);
+        state.dailySearchTimer = window.setTimeout(
+          () => loadDailyEntries(false),
+          350
+        );
+      }
+    );
+
+    document.querySelectorAll(".daily-tab").forEach(button => {
+      button.addEventListener("click", () => {
+        setDailyView(button.dataset.dailyView);
+      });
+    });
+
+    $("searchProductsButton").addEventListener(
+      "click",
+      () => searchProducts(true)
+    );
+
+    $("productSearchInput").addEventListener(
+      "input",
+      () => {
+        window.clearTimeout(state.productSearchTimer);
+
+        const query =
+          $("productSearchInput").value.trim();
+
+        if (query.length < 2) {
+          state.lastProductSearchQuery = "";
+          $("productsSearchLoading").classList.add("hidden");
+          $("productsSearchList").classList.add("hidden");
+          $("productsSearchEmpty").classList.remove("hidden");
+          $("productsSearchEmpty").innerHTML =
+            "<strong>En az 2 karakter girin</strong>" +
+            "<span>Yazdıkça sonuçlar otomatik listelenecek.</span>";
+          $("productResultCount").textContent = "0 ürün";
+          clearManagementProductDetail();
+          return;
+        }
+
+        state.productSearchTimer = window.setTimeout(
+          () => searchProducts(false),
+          350
+        );
+      }
+    );
+
+    $("productSearchInput").addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          window.clearTimeout(state.productSearchTimer);
+          searchProducts(true);
+        }
+      }
+    );
+
+    $("clearProductSearchButton").addEventListener(
+      "click",
+      clearProductSearch
+    );
+
+    $("openNewProductButton").addEventListener(
+      "click",
+      () => openNewProductModal("", false, "products")
+    );
+
+    $("openStockNewProductButton").addEventListener(
+      "click",
+      openStockNewProductModal
+    );
+
+    $("addMissingStockProductButton").addEventListener(
+      "click",
+      openStockNewProductModal
+    );
+
+    $("retryStockProductButton").addEventListener(
+      "click",
+      retryStockProductSearch
+    );
+
+    $("closeNewProductButton").addEventListener(
+      "click",
+      closeNewProductModal
+    );
+
+    $("cancelNewProductButton").addEventListener(
+      "click",
+      closeNewProductModal
+    );
+
+    $("newProductForm").addEventListener(
+      "submit",
+      saveNewProduct
+    );
+
+    $("toggleProductStatusButton").addEventListener(
+      "click",
+      toggleSelectedProductStatus
+    );
+
+    $("goToStockFromProductButton").addEventListener(
+      "click",
+      goToStockFromSelectedProduct
+    );
+
+    $("newProductModal").addEventListener(
+      "click",
+      (event) => {
+        if (event.target === $("newProductModal")) {
+          closeNewProductModal();
+        }
+      }
+    );
+
+    $("findProductButton").addEventListener(
+      "click",
+      () => findStockProduct(true)
+    );
+
+    $("saveStockButton").addEventListener(
+      "click",
+      saveStockOperation
+    );
+
+    $("quickStockButton").addEventListener(
+      "click",
+      () => quickStockIn()
+    );
+
+    $("openStockCameraButton").addEventListener(
+      "click",
+      openStockCameraModal
+    );
+
+    const stockCaptureInput = $("stockCameraCaptureInput");
+    if (stockCaptureInput) {
+      stockCaptureInput.addEventListener("change", handleStockCameraCapture);
+    }
+
+    $("closeStockCameraButton").addEventListener(
+      "click",
+      closeStockCameraModal
+    );
+
+    $("cancelStockCameraButton").addEventListener(
+      "click",
+      closeStockCameraModal
+    );
+
+    $("stockCameraTorchButton").addEventListener(
+      "click",
+      toggleStockCameraTorch
+    );
+
+    $("stockCameraDeviceSelect").addEventListener(
+      "change",
+      async () => {
+        if (state.stockCameraRunning) {
+          await stopStockCameraScanner();
+          await startStockCameraScanner();
+        }
+      }
+    );
+
+    $("stockCameraModal").addEventListener(
+      "click",
+      event => {
+        if (event.target === $("stockCameraModal")) {
+          closeStockCameraModal();
+        }
+      }
+    );
+
+    $("toggleCameraButton").addEventListener(
+      "click",
+      toggleCameraScanner
+    );
+
+    $("closeGithubCameraButton").addEventListener("click", closeGithubCamera);
+    $("githubCameraShell").addEventListener("click", event => {
+      if (event.target === $("githubCameraShell")) closeGithubCamera();
+    });
+    window.addEventListener("message", handleGithubCameraMessage);
+
+    $("toggleTorchButton").addEventListener(
+      "click",
+      toggleCameraTorch
+    );
+
+    $("cameraDeviceSelect").addEventListener("change", async () => {
+      if (state.cameraRunning) {
+        await stopCameraScanner(false);
+        await startCameraScanner();
+      }
+    });
+
+    $("addUnknownProductButton").addEventListener(
+      "click",
+      addUnknownProduct
+    );
+
+    $("continueUnknownProductButton").addEventListener(
+      "click",
+      continueAfterUnknownProduct
+    );
+
+    $("unknownProductModal").addEventListener(
+      "click",
+      event => {
+        if (event.target === $("unknownProductModal")) {
+          continueAfterUnknownProduct();
+        }
+      }
+    );
+
+    $("manualCameraAddButton").addEventListener(
+      "click",
+      submitManualCameraBarcode
+    );
+
+    $("manualCameraBarcode").addEventListener(
+      "keydown",
+      event => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submitManualCameraBarcode();
+        }
+      }
+    );
+
+    $("stockBarcode").addEventListener(
+      "keydown",
+      (event) => {
+        const suggestionsVisible = !$("stockProductSuggestions").classList.contains("hidden");
+        const resultCount = state.stockSearchResults.length;
+
+        if (suggestionsVisible && resultCount && event.key === "ArrowDown") {
+          event.preventDefault();
+          setActiveStockSuggestion(
+            state.stockSearchActiveIndex < resultCount - 1
+              ? state.stockSearchActiveIndex + 1
+              : 0
+          );
+          return;
+        }
+
+        if (suggestionsVisible && resultCount && event.key === "ArrowUp") {
+          event.preventDefault();
+          setActiveStockSuggestion(
+            state.stockSearchActiveIndex > 0
+              ? state.stockSearchActiveIndex - 1
+              : resultCount - 1
+          );
+          return;
+        }
+
+        if (event.key === "Escape") {
+          hideStockProductSuggestions();
+          return;
+        }
+
+        if (event.key === "Enter") {
+          event.preventDefault();
+          if (suggestionsVisible && resultCount) {
+            const index = state.stockSearchActiveIndex >= 0
+              ? state.stockSearchActiveIndex
+              : 0;
+            selectStockSearchProduct(state.stockSearchResults[index]);
+          } else {
+            findStockProduct(true);
+          }
+        }
+      }
+    );
+
+    $("stockBarcode").addEventListener(
+      "input",
+      () => {
+        hideStockNotFoundActions();
+
+        if (state.stockSelectedFromSuggestion) {
+          state.stockSelectedFromSuggestion = false;
+          return;
+        }
+
+        if (
+          state.currentProduct &&
+          state.currentProduct.barcode !==
+            $("stockBarcode").value.trim()
+        ) {
+          clearProductPreview();
+          setStockMessage("");
+        }
+
+        window.clearTimeout(state.stockSearchTimer);
+        state.stockSearchTimer = window.setTimeout(searchStockProducts, 260);
+      }
+    );
+
+    $("stockBarcode").addEventListener("focus", () => {
+      if (state.stockSearchResults.length) {
+        $("stockProductSuggestions").classList.remove("hidden");
+        $("stockBarcode").setAttribute("aria-expanded", "true");
+      }
+    });
+
+    document.addEventListener("click", event => {
+      const shell = event.target.closest(".stock-search-shell");
+      if (!shell) hideStockProductSuggestions();
+    });
+
+    $("operationStockIn").addEventListener(
+      "change",
+      updateOperationCards
+    );
+
+    $("operationStockOut").addEventListener(
+      "change",
+      updateOperationCards
+    );
+
+    $("decreaseQuantityButton").addEventListener(
+      "click",
+      () => changeQuantity(-1)
+    );
+
+    $("increaseQuantityButton").addEventListener(
+      "click",
+      () => changeQuantity(1)
+    );
+
+    $("refreshPersonnelButton").addEventListener(
+      "click",
+      () => loadPersonnelManagement(true)
+    );
+
+    $("newPersonnelForm").addEventListener(
+      "submit",
+      addPersonnel
+    );
+
+    $("editPersonnelForm").addEventListener(
+      "submit",
+      updatePersonnel
+    );
+
+    $("changePersonnelPinButton").addEventListener(
+      "click",
+      changePersonnelPin
+    );
+
+    $("personnelSearchInput").addEventListener("input", event => {
+      state.personnelSearchQuery = event.target.value.trim();
+      renderPersonnelCards();
+    });
+
+    $("editPersonnelRole").addEventListener("change", () => {
+      if (!state.selectedPersonnelRecord) return;
+      updatePersonnelEditorVisuals({ ...state.selectedPersonnelRecord, personnel: $("editPersonnelName").value, role: $("editPersonnelRole").value, active: $("editPersonnelActive").value });
+    });
+    $("editPersonnelActive").addEventListener("change", () => {
+      if (!state.selectedPersonnelRecord) return;
+      updatePersonnelEditorVisuals({ ...state.selectedPersonnelRecord, personnel: $("editPersonnelName").value, role: $("editPersonnelRole").value, active: $("editPersonnelActive").value });
+    });
+    $("editPersonnelName").addEventListener("input", () => {
+      if (!state.selectedPersonnelRecord) return;
+      updatePersonnelEditorVisuals({ ...state.selectedPersonnelRecord, personnel: $("editPersonnelName").value, role: $("editPersonnelRole").value, active: $("editPersonnelActive").value });
+    });
+
+
+    $("refreshProductReportButton").addEventListener("click", () => loadProductReport(true));
+    $("downloadProductReportCsvButton").addEventListener("click", downloadProductReportCsv);
+    $("printProductReportButton").addEventListener("click", printProductReport);
+    ["productReportCategoryFilter", "productReportStockFilter", "productReportSort"].forEach(id => $(id).addEventListener("change", renderProductReport));
+    $("productReportSearchInput").addEventListener("input", () => {
+      window.clearTimeout(state.productReportSearchTimer);
+      state.productReportSearchTimer = window.setTimeout(renderProductReport, 220);
+    });
+
+    $("refreshMovementsButton").addEventListener("click", () => loadMovements(true));
+    $("downloadMovementCsvButton").addEventListener("click", downloadMovementCsv);
+    $("printMovementReportButton").addEventListener("click", printMovementReport);
+    ["movementPersonnelFilter", "movementOperationFilter", "movementStartDate", "movementEndDate", "movementSort"].forEach(id => $(id).addEventListener("change", renderMovements));
+    $("movementSearchInput").addEventListener("input", () => {
+      window.clearTimeout(state.movementSearchTimer);
+      state.movementSearchTimer = window.setTimeout(renderMovements, 250);
+    });
+
+    document
+      .querySelectorAll(".menu-item, .mobile-nav-item[data-page], .mobile-menu-page")
+      .forEach((button) => {
+        button.addEventListener(
+          "click",
+          () => openPage(button.dataset.page)
+        );
+      });
+
+    if ($("mobileMenuButton")) {
+      $("mobileMenuButton").addEventListener("click", () => setMobileMenuOpen(true));
+    }
+    if ($("closeMobileMenuButton")) {
+      $("closeMobileMenuButton").addEventListener("click", closeMobileMenu);
+    }
+    if ($("mobileMenuBackdrop")) {
+      $("mobileMenuBackdrop").addEventListener("click", event => {
+        if (event.target === $("mobileMenuBackdrop")) closeMobileMenu();
+      });
+    }
+    if ($("mobileMenuLogoutButton")) {
+      $("mobileMenuLogoutButton").addEventListener("click", async () => {
+        closeMobileMenu();
+        await logout();
+      });
+    }
+  }
+
+  document.addEventListener(
+    "DOMContentLoaded",
+    async () => {
+      /*
+       * V16 güvenlik kuralı: Her yeni uygulama açılışında personel + PIN gerekir.
+       * Eski sürümlerden kalan otomatik oturum kayıtları temizlenir.
+       */
+      clearRememberedSession();
+      state.token = "";
+      state.user = null;
+
+      captureReturnedCameraScan();
+      bindEvents();
+      applyCameraAvailability();
+      await loadPersonnel();
+      showLogin();
+
+      $("personnelSelect").value = "";
+      $("pinInput").value = "";
+    }
+  );
+})();
+</script>
