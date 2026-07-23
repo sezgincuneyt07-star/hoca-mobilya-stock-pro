@@ -329,7 +329,7 @@ button { cursor: pointer; }
 }
 
 
-/* V13 - Toplu kamera listesi ve son onay */
+/* V14 - Toplu kamera listesi, son onay ve zorunlu PIN */
 .camera-batch-panel {
   margin: 0 18px 18px;
   overflow: hidden;
