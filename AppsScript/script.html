@@ -335,7 +335,7 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
         );
       });
 
-    loadDashboard(false);
+    openPage("home");
   }
 
   async function logout() {
@@ -824,6 +824,10 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
     backdrop.classList.toggle("hidden", !isOpen);
     backdrop.setAttribute("aria-hidden", isOpen ? "false" : "true");
     document.body.classList.toggle("mobile-menu-open", Boolean(isOpen));
+    if ($("mobileMenuButton")) {
+      $("mobileMenuButton").setAttribute("aria-expanded", isOpen ? "true" : "false");
+      $("mobileMenuButton").classList.toggle("open", Boolean(isOpen));
+    }
   }
 
   function closeMobileMenu() {
@@ -860,13 +864,6 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
         );
       });
 
-    const mobilePrimaryPages = ["home", "stock", "camera", "products"];
-    if ($("mobileMenuButton")) {
-      $("mobileMenuButton").classList.toggle(
-        "active",
-        !mobilePrimaryPages.includes(pageName)
-      );
-    }
     closeMobileMenu();
 
     $("page-" + pageName).classList.add("active");

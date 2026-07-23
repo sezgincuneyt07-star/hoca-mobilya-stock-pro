@@ -96,9 +96,12 @@
           </div>
         </div>
         <div class="topbar-badges">
-          <span class="topbar-badge">V16 Stabil</span>
+          <span class="topbar-badge">V17 Stabil</span>
           <span class="topbar-badge secure">Son onay güvenliği</span>
         </div>
+        <button id="mobileMenuButton" class="mobile-hamburger-button" type="button" aria-label="Menüyü aç" aria-haspopup="dialog" aria-controls="mobileMenuBackdrop" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
       </header>
 
       <section id="page-home" class="page active">
@@ -948,30 +951,6 @@
 
     </main>
 
-    <!-- V16 MOBİL ALT MENÜ -->
-    <nav id="mobileBottomNav" class="mobile-bottom-nav" aria-label="Mobil ana menü">
-      <button class="mobile-nav-item active" data-page="home" type="button">
-        <span class="mobile-nav-icon" aria-hidden="true">⌂</span>
-        <span>Ana Sayfa</span>
-      </button>
-      <button class="mobile-nav-item" data-page="stock" type="button">
-        <span class="mobile-nav-icon" aria-hidden="true">⇅</span>
-        <span>Stok</span>
-      </button>
-      <button class="mobile-nav-item mobile-nav-camera" data-page="camera" type="button">
-        <span class="mobile-nav-icon" aria-hidden="true">▣</span>
-        <span>Kamera</span>
-      </button>
-      <button class="mobile-nav-item" data-page="products" type="button">
-        <span class="mobile-nav-icon" aria-hidden="true">□</span>
-        <span>Ürünler</span>
-      </button>
-      <button id="mobileMenuButton" class="mobile-nav-item mobile-menu-trigger" type="button" aria-haspopup="dialog" aria-controls="mobileMenuBackdrop">
-        <span class="mobile-nav-icon" aria-hidden="true">☰</span>
-        <span>Menü</span>
-      </button>
-    </nav>
-
     <div id="mobileMenuBackdrop" class="mobile-menu-backdrop hidden" aria-hidden="true">
       <section class="mobile-menu-sheet" role="dialog" aria-modal="true" aria-labelledby="mobileMenuTitle">
         <header class="mobile-menu-header">
@@ -986,6 +965,10 @@
         </header>
 
         <div class="mobile-menu-grid">
+          <button class="mobile-menu-page active" data-page="home" type="button"><span>⌂</span><strong>Ana Sayfa</strong><small>Genel durum ve hızlı erişim</small></button>
+          <button class="mobile-menu-page" data-page="stock" type="button"><span>⇅</span><strong>Stok İşlemi</strong><small>Stok giriş veya çıkış işlemi</small></button>
+          <button class="mobile-menu-page" data-page="camera" type="button"><span>▣</span><strong>Hızlı Kamera</strong><small>Barkodları okut ve toplu onayla</small></button>
+          <button class="mobile-menu-page" data-page="products" type="button"><span>□</span><strong>Ürünler</strong><small>Ürünleri ara, ekle ve düzenle</small></button>
           <button class="mobile-menu-page" data-page="daily" type="button"><span>✓</span><strong>Günlük Kontrol</strong><small>Bugünkü işlemleri incele</small></button>
           <button class="mobile-menu-page" data-page="bulk" type="button"><span>▤</span><strong>Toplu Stok</strong><small>Kategori stoklarını görüntüle</small></button>
           <button class="mobile-menu-page admin-only" data-page="reports" type="button"><span>▥</span><strong>Stok Raporları</strong><small>Rapor ve dışa aktarma</small></button>
@@ -994,7 +977,7 @@
         </div>
 
         <footer class="mobile-menu-footer">
-          <span>V16 • Stabil mobil kullanım</span>
+          <span>V17 • Sağ menü</span>
           <button id="mobileMenuLogoutButton" type="button">Çıkış Yap</button>
         </footer>
       </section>
