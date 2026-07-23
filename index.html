@@ -3,82 +3,78 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#0f172a">
-  <title>HOCA MOBİLYA Stok Kamerası V9</title>
-  <link rel="stylesheet" href="style.css?v=9">
+  <meta name="theme-color" content="#232832">
+  <title>HOCA MOBİLYA STOK PRO V11</title>
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
-  <main class="app">
-    <header>
-      <p class="eyebrow">HOCA MOBİLYA STOK PRO</p>
-      <h1>Hızlı Stok Barkod Kamerası</h1>
-      <p class="info">
-        Hızlı modda barkod okunur okunmaz stok +1 kaydedilir ve kamera kapanmadan sıradaki ürünü bekler.
-      </p>
-    </header>
+  <div id="appLoader" class="app-loader">
+    <div class="loader-card">
+      <div class="brand-mark">HM</div>
+      <strong>HOCA MOBİLYA STOK PRO</strong>
+      <span>Uygulama yükleniyor...</span>
+    </div>
+  </div>
 
-    <section class="camera-card">
-      <video id="video" autoplay muted playsinline webkit-playsinline></video>
+  <iframe
+    id="stockAppFrame"
+    class="stock-app-frame"
+    title="HOCA MOBİLYA Stok Pro"
+    allow="clipboard-read; clipboard-write"
+    src="https://script.google.com/macros/s/AKfycbzKW87lp7ZpwzvrJr0W36rj_VCScP2MCZJBOdUnU4NX_i2K0fJeUUsjzZapnsT1kjrc/exec">
+  </iframe>
 
-      <div class="scan-area" aria-hidden="true">
-        <span></span>
+  <section id="cameraOverlay" class="camera-overlay hidden" aria-hidden="true">
+    <div class="camera-shell">
+      <header class="camera-header">
+        <div>
+          <span>HOCA MOBİLYA STOK PRO</span>
+          <strong id="cameraTitle">Hızlı Kamera</strong>
+        </div>
+        <button id="closeCameraButton" class="icon-button" type="button" aria-label="Kamerayı kapat">×</button>
+      </header>
+
+      <div class="camera-stage">
+        <video id="cameraVideo" autoplay muted playsinline webkit-playsinline></video>
+        <div class="scan-guide" aria-hidden="true"><span></span></div>
+        <div id="cameraCover" class="camera-cover">
+          <strong>Kamera hazırlanıyor</strong>
+          <span id="cameraCoverText">Kamera izni bekleniyor...</span>
+        </div>
+        <div id="cameraEngine" class="camera-engine">ZXing hazırlanıyor</div>
       </div>
 
-      <div id="cover" class="cover">
-        <strong>Kamera kapalı</strong>
-        <span>Kamerayı Başlat düğmesine bas.</span>
-      </div>
-    </section>
-
-    <section class="buttons">
-      <button id="startBtn" class="primary" type="button">Kamerayı Başlat</button>
-      <button id="switchBtn" type="button" disabled>Kamerayı Değiştir</button>
-      <button id="stopBtn" type="button" disabled>Kamerayı Kapat</button>
-    </section>
-
-    <section class="result-card">
-      <div>
-        <span class="label">Son okunan barkod</span>
-        <strong id="barcodeValue">Henüz barkod okunmadı</strong>
-      </div>
-      <span id="scanCount">0 okuma</span>
-    </section>
-
-    <section class="status-card">
-      <h2>Canlı Durum</h2>
-
-      <div class="grid">
-        <div><span>Sayfa sürümü</span><strong>V9</strong></div>
-        <div><span>HTTPS</span><strong id="httpsState">-</strong></div>
-        <div><span>Kamera</span><strong id="cameraState">Kapalı</strong></div>
-        <div><span>Video durumu</span><strong id="videoState">Veri yok</strong></div>
-        <div><span>Video boyutu</span><strong id="videoSize">0 × 0</strong></div>
-        <div><span>Aktif cihaz</span><strong id="deviceName">-</strong></div>
-        <div><span>ZXing</span><strong id="zxingState">Kontrol ediliyor</strong></div>
-        <div><span>Tarama durumu</span><strong id="scanState">Bekliyor</strong></div>
+      <div class="camera-toolbar">
+        <button id="startCameraButton" class="primary-button" type="button">Kamerayı Başlat</button>
+        <button id="switchCameraButton" type="button" disabled>Kamerayı Değiştir</button>
+        <button id="torchButton" type="button" disabled>Feneri Aç</button>
       </div>
 
-      <pre id="log">Hazır.</pre>
-    </section>
-
-    <section class="result-card">
-      <div>
-        <span class="label">Stok programı bağlantısı</span>
-        <strong id="appConnection">Bağlantı bekleniyor</strong>
+      <div class="camera-status-grid">
+        <article>
+          <span>Son barkod</span>
+          <strong id="lastBarcode">Henüz okutulmadı</strong>
+        </article>
+        <article>
+          <span>İşlem sonucu</span>
+          <strong id="stockResult">Barkod bekleniyor</strong>
+        </article>
+        <article>
+          <span>Başarılı işlem</span>
+          <strong id="scanCounter">0</strong>
+        </article>
       </div>
-      <button id="returnBtn" type="button">Stok Programına Dön</button>
-    </section>
 
-    <section class="manual-card">
-      <h2>Manuel barkod testi</h2>
+      <p id="cameraMessage" class="camera-message">Kamerayı başlatın ve barkodu çerçevenin içine tutun.</p>
+
       <div class="manual-row">
-        <input id="manualBarcode" type="text" inputmode="numeric" autocomplete="off" placeholder="Barkod numarası">
-        <button id="manualBtn" class="primary" type="button">Barkodu Kullan</button>
+        <input id="manualBarcode" type="text" inputmode="numeric" autocomplete="off" placeholder="Manuel barkod">
+        <button id="manualBarcodeButton" class="primary-button" type="button">Barkodu Kullan</button>
       </div>
-    </section>
-  </main>
+    </div>
+  </section>
 
   <script src="https://unpkg.com/@zxing/browser@0.2.0/umd/zxing-browser.min.js"></script>
-  <script src="camera.js?v=9"></script>
+  <script src="camera.js?v=11"></script>
 </body>
 </html>

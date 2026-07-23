@@ -1,657 +1,391 @@
 (() => {
   "use strict";
 
-  const video = document.getElementById("video");
-  const cover = document.getElementById("cover");
-  const startBtn = document.getElementById("startBtn");
-  const switchBtn = document.getElementById("switchBtn");
-  const stopBtn = document.getElementById("stopBtn");
+  const APP_URL = "https://script.google.com/macros/s/AKfycbzKW87lp7ZpwzvrJr0W36rj_VCScP2MCZJBOdUnU4NX_i2K0fJeUUsjzZapnsT1kjrc/exec";
+  const APP_ORIGIN_PATTERN = /^https:\/\/(script\.google\.com|(?:[a-z0-9-]+-)?script\.googleusercontent\.com)$/i;
+  const CAMERA_DEVICE_KEY = "hoca_mobilya_v11_camera_device";
 
-  const barcodeValue = document.getElementById("barcodeValue");
-  const scanCount = document.getElementById("scanCount");
-  const httpsState = document.getElementById("httpsState");
-  const cameraState = document.getElementById("cameraState");
-  const videoState = document.getElementById("videoState");
-  const videoSize = document.getElementById("videoSize");
-  const deviceName = document.getElementById("deviceName");
-  const zxingState = document.getElementById("zxingState");
-  const scanState = document.getElementById("scanState");
-  const logBox = document.getElementById("log");
+  const frame = document.getElementById("stockAppFrame");
+  const loader = document.getElementById("appLoader");
+  const overlay = document.getElementById("cameraOverlay");
+  const video = document.getElementById("cameraVideo");
+  const cover = document.getElementById("cameraCover");
+  const coverText = document.getElementById("cameraCoverText");
+  const cameraTitle = document.getElementById("cameraTitle");
+  const cameraEngine = document.getElementById("cameraEngine");
+  const closeButton = document.getElementById("closeCameraButton");
+  const startButton = document.getElementById("startCameraButton");
+  const switchButton = document.getElementById("switchCameraButton");
+  const torchButton = document.getElementById("torchButton");
+  const lastBarcode = document.getElementById("lastBarcode");
+  const stockResult = document.getElementById("stockResult");
+  const scanCounter = document.getElementById("scanCounter");
+  const cameraMessage = document.getElementById("cameraMessage");
   const manualBarcode = document.getElementById("manualBarcode");
-  const manualBtn = document.getElementById("manualBtn");
-  const appConnection = document.getElementById("appConnection");
-  const returnBtn = document.getElementById("returnBtn");
+  const manualButton = document.getElementById("manualBarcodeButton");
 
-  const params = new URLSearchParams(window.location.search);
-  const privateParams = new URLSearchParams(
-    String(window.location.hash || "").replace(/^#/, "")
-  );
-
-  const cameraMode = params.get("mode") === "stock" ? "stock" : "quick";
-  const returnUrl = String(params.get("returnUrl") || "").trim();
-  const configuredAppOrigin = String(params.get("appOrigin") || "").trim();
-  const sessionToken = String(privateParams.get("sessionToken") || "").trim();
-  const apiUrlCandidate = String(privateParams.get("apiUrl") || returnUrl || "").trim();
-  const apiUrl = isAllowedApiUrl(apiUrlCandidate) ? apiUrlCandidate : "";
-
-  /* Hassas token adres çubuğunda görünmesin. Değer bellekte tutulmaya devam eder. */
-  if (window.location.hash) {
-    try {
-      window.history.replaceState(
-        {},
-        document.title,
-        window.location.pathname + window.location.search
-      );
-    } catch (_) {}
-  }
-
+  let mode = "quick";
   let stream = null;
+  let track = null;
   let cameras = [];
   let cameraIndex = 0;
-  let codeReader = null;
-  let scanControls = null;
-  let totalScans = 0;
-  let lastBarcode = "";
-  let lastBarcodeTime = 0;
-  let waitingForStockResult = false;
-  let activeScanId = "";
-  let appReady = false;
+  let reader = null;
+  let controls = null;
+  let waitingForResult = false;
+  let lastAcceptedBarcode = "";
+  let lastAcceptedAt = 0;
+  let successfulScans = 0;
+  let torchEnabled = false;
+  let appFrameReady = false;
+  let appMessageTarget = null;
 
-  function isAllowedApiUrl(value) {
-    try {
-      const url = new URL(String(value || ""));
-      return (
-        url.protocol === "https:" &&
-        url.hostname === "script.google.com" &&
-        /\/macros\/s\//.test(url.pathname)
-      );
-    } catch (_) {
-      return false;
-    }
+  frame.src = APP_URL;
+  frame.addEventListener("load", () => {
+    appFrameReady = true;
+    loader.classList.add("hidden");
+  });
+
+  function setMessage(text, type = "") {
+    cameraMessage.textContent = text || "";
+    cameraMessage.className = "camera-message " + type;
   }
 
-  function isAllowedAppOrigin(origin) {
-    if (!origin) return false;
-    if (configuredAppOrigin && origin === configuredAppOrigin) return true;
-    return /^https:\/\/(script\.google\.com|[a-z0-9-]+-script\.googleusercontent\.com)$/i.test(origin);
+  function postToApp(payload) {
+    const target = appMessageTarget || frame.contentWindow;
+    if (!target) return;
+    target.postMessage(payload, "*");
   }
 
-  function postToStockApp(payload) {
-    const target = window.opener && !window.opener.closed ? window.opener : null;
-    if (!target) return false;
-
-    try {
-      target.postMessage(payload, configuredAppOrigin || "*");
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function notifyReady() {
-    const sent = postToStockApp({
-      source: "HOCA_MOBILYA_CAMERA",
-      type: "CAMERA_READY",
-      mode: cameraMode
-    });
-
-    if (cameraMode === "quick" && sessionToken && apiUrl) {
-      appConnection.textContent = "Doğrudan stok bağlantısı hazır";
-      return;
-    }
-
-    if (sent) {
-      appConnection.textContent = appReady
-        ? "Stok programına bağlı"
-        : "Stok programı yanıtı bekleniyor";
-    } else {
-      appConnection.textContent = "Stok uygulamasına dönüş bağlantısı hazır";
-    }
-  }
-
-  function returnToStockApp(barcode = "", cancelled = false) {
-    if (!returnUrl) return;
-    const url = new URL(returnUrl);
-    if (barcode) url.searchParams.set("cameraBarcode", barcode);
-    url.searchParams.set("cameraMode", cameraMode);
-    if (cancelled) url.searchParams.set("cameraCancelled", "1");
-
-    if (sessionToken) {
-      const returnPrivateParams = new URLSearchParams();
-      returnPrivateParams.set("cameraToken", sessionToken);
-      url.hash = returnPrivateParams.toString();
-    }
-
-    window.location.assign(url.toString());
-  }
-
-  function callCameraApi(action, payload = {}) {
-    return new Promise((resolve, reject) => {
-      if (!apiUrl || !sessionToken) {
-        reject(new Error("Kamera oturumu bulunamadı. Kamerayı stok uygulamasından yeniden açın."));
-        return;
-      }
-
-      const callbackName =
-        `__hocaCameraApi_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-      const script = document.createElement("script");
-      const url = new URL(apiUrl);
-      let finished = false;
-
-      const cleanup = () => {
-        if (finished) return;
-        finished = true;
-        window.clearTimeout(timeoutId);
-        try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
-        if (script.parentNode) script.parentNode.removeChild(script);
-      };
-
-      window[callbackName] = response => {
-        cleanup();
-        resolve(response || { success: false, message: "Sunucudan boş yanıt alındı." });
-      };
-
-      url.searchParams.set("cameraApi", "1");
-      url.searchParams.set("action", action);
-      url.searchParams.set("token", sessionToken);
-      url.searchParams.set("callback", callbackName);
-      url.searchParams.set("_", String(Date.now()));
-
-      Object.entries(payload).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          url.searchParams.set(key, String(value));
-        }
-      });
-
-      script.async = true;
-      script.src = url.toString();
-      script.onerror = () => {
-        cleanup();
-        reject(new Error("Stok sunucusuna bağlanılamadı."));
-      };
-
-      const timeoutId = window.setTimeout(() => {
-        cleanup();
-        reject(new Error("Stok sunucusu zaman aşımına uğradı."));
-      }, 20000);
-
-      document.head.appendChild(script);
-    });
-  }
-
-  function applyStockResult(data, syncWithApp = false) {
-    if (data.scanId && activeScanId && data.scanId !== activeScanId) return;
-
-    waitingForStockResult = false;
-    activeScanId = "";
-
-    if (data.success) {
-      barcodeValue.textContent =
-        `${data.barcode || lastBarcode} • Yeni stok: ${data.newStock}`;
-      scanState.textContent = "Stok kaydedildi";
-      appConnection.textContent = data.message || "Doğrudan stok bağlantısı hazır";
-      beep();
-      vibrate();
-      window.setTimeout(() => {
-        if (stream) scanState.textContent = "Taranıyor";
-      }, 500);
-    } else {
-      scanState.textContent =
-        data.code === "PRODUCT_NOT_FOUND"
-          ? "Ürün bulunamadı"
-          : "Stok işlemi başarısız";
-      appConnection.textContent = data.message || "Stok işlemi yapılamadı";
-      window.setTimeout(() => {
-        if (stream) scanState.textContent = "Taranıyor";
-      }, 900);
-    }
-
-    if (syncWithApp) {
-      postToStockApp({
-        source: "HOCA_MOBILYA_CAMERA",
-        type: "DIRECT_STOCK_RESULT",
-        success: Boolean(data.success),
-        barcode: data.barcode || lastBarcode,
-        newStock: data.newStock,
-        productName:
-          data.product && data.product.model
-            ? data.product.model
-            : "Ürün",
-        code: data.code || "",
-        message: data.message || ""
-      });
-    }
-  }
-
-  async function sendBarcodeToStockApp(barcode) {
-    activeScanId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    waitingForStockResult = true;
-    scanState.textContent =
-      cameraMode === "quick"
-        ? "Stok +1 kaydediliyor"
-        : "Barkod aktarılıyor";
-
-    if (cameraMode === "quick") {
-      try {
-        const result = await callCameraApi("quickStockIn", {
-          barcode,
-          scanId: activeScanId
-        });
-        applyStockResult(result, true);
-      } catch (error) {
-        applyStockResult({
-          success: false,
-          barcode,
-          code: "CONNECTION_ERROR",
-          message: error && error.message
-            ? error.message
-            : "Stok sunucusuna bağlanılamadı."
-        }, true);
-      }
-      return;
-    }
-
-    const sent = postToStockApp({
-      source: "HOCA_MOBILYA_CAMERA",
-      type: "BARCODE_SCANNED",
-      scanId: activeScanId,
-      barcode,
-      mode: cameraMode
-    });
-
-    if (!sent) {
-      window.setTimeout(() => returnToStockApp(barcode, false), 150);
-    }
-  }
-
-  function log(message, error) {
-    const lines = [message];
-
-    if (error?.name) lines.push(`Hata adı: ${error.name}`);
-    if (error?.message) lines.push(`Açıklama: ${error.message}`);
-
-    lines.push(`readyState: ${video.readyState}`);
-    lines.push(`paused: ${video.paused}`);
-    lines.push(`videoWidth: ${video.videoWidth}`);
-    lines.push(`videoHeight: ${video.videoHeight}`);
-
-    logBox.textContent = lines.join("\n");
-  }
-
-  function updateVideoStatus() {
-    const names = {
-      0: "Veri yok",
-      1: "Metadata yüklendi",
-      2: "Kare hazır",
-      3: "İleri veri var",
-      4: "Oynatmaya hazır"
-    };
-
-    videoState.textContent = names[video.readyState] || String(video.readyState);
-    videoSize.textContent = `${video.videoWidth || 0} × ${video.videoHeight || 0}`;
-  }
-
-  function beep() {
+  function beep(success = true) {
     try {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
       const context = new AudioContextClass();
       const oscillator = context.createOscillator();
       const gain = context.createGain();
-
-      oscillator.frequency.value = 880;
-      gain.gain.value = 0.08;
-
+      oscillator.frequency.value = success ? 880 : 230;
+      gain.gain.value = 0.06;
       oscillator.connect(gain);
       gain.connect(context.destination);
-
       oscillator.start();
-      oscillator.stop(context.currentTime + 0.12);
+      oscillator.stop(context.currentTime + (success ? 0.09 : 0.18));
       oscillator.onended = () => context.close();
     } catch (_) {}
   }
 
-  function vibrate() {
-    if ("vibrate" in navigator) {
-      navigator.vibrate([100, 60, 100]);
+  function vibrate(success = true) {
+    if (!navigator.vibrate) return;
+    navigator.vibrate(success ? [70, 45, 70] : [180]);
+  }
+
+  async function enumerateCameras() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    cameras = devices.filter(device => device.kind === "videoinput");
+    switchButton.disabled = cameras.length < 2;
+  }
+
+  function preferredCameraIndex() {
+    const saved = localStorage.getItem(CAMERA_DEVICE_KEY) || "";
+    const savedIndex = cameras.findIndex(camera => camera.deviceId === saved);
+    if (savedIndex >= 0) return savedIndex;
+
+    const rearIndex = cameras.findIndex(camera =>
+      /back|rear|environment|arka/i.test(camera.label || "")
+    );
+    return rearIndex >= 0 ? rearIndex : Math.max(0, cameras.length - 1);
+  }
+
+  function updateTorchButton() {
+    let supported = false;
+    try {
+      const capabilities = track?.getCapabilities?.() || {};
+      supported = Boolean(capabilities.torch);
+    } catch (_) {}
+    torchButton.disabled = !supported;
+    torchButton.textContent = torchEnabled ? "Feneri Kapat" : "Feneri Aç";
+  }
+
+  function stopScanner() {
+    if (controls) {
+      try { controls.stop(); } catch (_) {}
+      controls = null;
+    }
+    if (reader) {
+      try { reader.reset(); } catch (_) {}
+      reader = null;
+    }
+  }
+
+  async function stopCamera() {
+    stopScanner();
+    torchEnabled = false;
+    updateTorchButton();
+
+    if (stream) {
+      stream.getTracks().forEach(item => item.stop());
+    }
+    stream = null;
+    track = null;
+    video.srcObject = null;
+    cover.classList.remove("hidden");
+    coverText.textContent = "Kamera kapalı.";
+    startButton.disabled = false;
+  }
+
+  async function startScanner() {
+    if (!window.ZXingBrowser?.BrowserMultiFormatReader) {
+      throw new Error("Barkod okuyucu yüklenemedi. İnternet bağlantısını kontrol edin.");
+    }
+
+    reader = new window.ZXingBrowser.BrowserMultiFormatReader();
+    cameraEngine.textContent = "ZXing aktif";
+
+    controls = await reader.decodeFromVideoElement(video, result => {
+      if (result) acceptBarcode(result.getText());
+    });
+  }
+
+  async function startCamera(deviceId = "") {
+    if (!window.isSecureContext || location.protocol !== "https:") {
+      setMessage("Kamera yalnızca HTTPS bağlantısında çalışır.", "error");
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMessage("Bu tarayıcı kamera kullanımını desteklemiyor.", "error");
+      return;
+    }
+
+    startButton.disabled = true;
+    cover.classList.remove("hidden");
+    coverText.textContent = "Kamera izni ve görüntü bekleniyor...";
+    setMessage("Kamera hazırlanıyor...");
+
+    try {
+      await stopCamera();
+      const constraints = deviceId
+        ? { video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }
+        : { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      track = stream.getVideoTracks()[0] || null;
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+      await video.play();
+      await enumerateCameras();
+
+      const settings = track?.getSettings?.() || {};
+      if (settings.deviceId) localStorage.setItem(CAMERA_DEVICE_KEY, settings.deviceId);
+
+      cover.classList.add("hidden");
+      startButton.disabled = true;
+      updateTorchButton();
+      await startScanner();
+      setMessage(
+        mode === "quick"
+          ? "Hazır. Okunan her kayıtlı barkod stoku anında +1 artırır."
+          : "Hazır. Barkod stok işlem ekranına aktarılacak.",
+        "success"
+      );
+    } catch (error) {
+      await stopCamera();
+      startButton.disabled = false;
+
+      let message = error?.message || "Kamera başlatılamadı.";
+      if (error?.name === "NotAllowedError") {
+        message = "Kamera izni verilmedi. Adres çubuğundaki site ayarlarından Kamera → İzin ver seçin.";
+      } else if (error?.name === "NotFoundError") {
+        message = "Kullanılabilir kamera bulunamadı.";
+      } else if (error?.name === "NotReadableError") {
+        message = "Kamera başka bir uygulama tarafından kullanılıyor olabilir.";
+      }
+
+      coverText.textContent = message;
+      setMessage(message, "error");
+    }
+  }
+
+  async function openCamera(requestedMode = "quick") {
+    mode = requestedMode === "stock" ? "stock" : "quick";
+    cameraTitle.textContent = mode === "quick" ? "Hızlı Kamera — Otomatik Stok +1" : "Stok İşlemi Kamerası";
+    waitingForResult = false;
+    lastAcceptedBarcode = "";
+    lastAcceptedAt = 0;
+    lastBarcode.textContent = "Henüz okutulmadı";
+    stockResult.textContent = mode === "quick" ? "Barkod bekleniyor" : "Ürün barkodu bekleniyor";
+    setMessage("Kamera hazırlanıyor...");
+
+    overlay.classList.remove("hidden");
+    overlay.setAttribute("aria-hidden", "false");
+    document.body.classList.add("camera-open");
+
+    postToApp({ source: "HOCA_MOBILYA_CAMERA", type: "CAMERA_READY", mode });
+
+    try {
+      await enumerateCameras();
+      cameraIndex = preferredCameraIndex();
+      await startCamera(cameras[cameraIndex]?.deviceId || "");
+    } catch (_) {
+      await startCamera();
+    }
+  }
+
+  async function closeCamera(notifyApp = true) {
+    await stopCamera();
+    overlay.classList.add("hidden");
+    overlay.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("camera-open");
+    waitingForResult = false;
+
+    if (notifyApp) {
+      postToApp({ source: "HOCA_MOBILYA_CAMERA", type: "CAMERA_CLOSED", mode });
     }
   }
 
   function acceptBarcode(value) {
     const barcode = String(value || "").trim();
-    if (!barcode) return;
+    if (!barcode || waitingForResult) return;
 
     const now = Date.now();
+    if (barcode === lastAcceptedBarcode && now - lastAcceptedAt < 1800) return;
 
-    if (waitingForStockResult) return;
+    lastAcceptedBarcode = barcode;
+    lastAcceptedAt = now;
+    waitingForResult = true;
+    lastBarcode.textContent = barcode;
+    stockResult.textContent = mode === "quick" ? "Stok +1 kaydediliyor..." : "Barkod aktarılıyor...";
+    setMessage(barcode + " işleniyor...");
+    beep(true);
+    vibrate(true);
 
-    if (barcode === lastBarcode && now - lastBarcodeTime < 2200) {
-      return;
-    }
-
-    lastBarcode = barcode;
-    lastBarcodeTime = now;
-    totalScans += 1;
-
-    barcodeValue.textContent = barcode;
-    scanCount.textContent = `${totalScans} okuma`;
-    scanState.textContent = "Barkod bulundu";
-
-    beep();
-    vibrate();
-    sendBarcodeToStockApp(barcode);
-  }
-
-  function prepareZxing() {
-    if (!window.ZXingBrowser?.BrowserMultiFormatReader) {
-      zxingState.textContent = "Yüklenemedi";
-      scanState.textContent = "Okuyucu hazır değil";
-      log("ZXing kütüphanesi yüklenemedi. İnternet bağlantısını kontrol et.");
-      return false;
-    }
-
-    codeReader = new window.ZXingBrowser.BrowserMultiFormatReader();
-    zxingState.textContent = "Hazır";
-    return true;
-  }
-
-  async function startBarcodeScanning() {
-    if (!codeReader && !prepareZxing()) return;
-
-    stopBarcodeScanning();
-    scanState.textContent = "Taranıyor";
-
-    try {
-      scanControls = await codeReader.decodeFromVideoElement(
-        video,
-        (result, error) => {
-          if (result) {
-            acceptBarcode(result.getText());
-          }
-
-          if (
-            error &&
-            error.name !== "NotFoundException" &&
-            error.name !== "ChecksumException" &&
-            error.name !== "FormatException"
-          ) {
-            console.debug("ZXing tarama bilgisi:", error);
-          }
-        }
-      );
-    } catch (error) {
-      scanState.textContent = "Tarama başlatılamadı";
-      log("ZXing barkod taraması başlatılamadı.", error);
-    }
-  }
-
-  function stopBarcodeScanning() {
-    if (scanControls) {
-      try {
-        scanControls.stop();
-      } catch (_) {}
-      scanControls = null;
-    }
-
-    scanState.textContent = "Bekliyor";
-  }
-
-  async function getCameras() {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    cameras = devices.filter(device => device.kind === "videoinput");
-    switchBtn.disabled = cameras.length < 2;
-  }
-
-  function preferredIndex() {
-    const index = cameras.findIndex(camera =>
-      /back|rear|environment|arka/i.test(camera.label || "")
-    );
-
-    return index >= 0 ? index : Math.max(0, cameras.length - 1);
-  }
-
-  async function stopCamera() {
-    stopBarcodeScanning();
-
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      stream = null;
-    }
-
-    if (video.srcObject) {
-      video.srcObject = null;
-    }
-
-    video.pause();
-    cover.classList.remove("hidden");
-    cameraState.textContent = "Kapalı";
-    deviceName.textContent = "-";
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    updateVideoStatus();
-  }
-
-  async function waitForFirstFrame() {
-    return new Promise((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        reject(new Error("İlk video karesi 10 saniye içinde gelmedi."));
-      }, 10000);
-
-      const finish = () => {
-        window.clearTimeout(timeout);
-        resolve();
-      };
-
-      if (video.readyState >= 2 && video.videoWidth > 0) {
-        finish();
-        return;
-      }
-
-      video.addEventListener("loadeddata", finish, { once: true });
+    postToApp({
+      source: "HOCA_MOBILYA_CAMERA",
+      type: "BARCODE_SCANNED",
+      mode,
+      scanId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      barcode
     });
   }
 
-  async function startCamera(deviceId) {
-    await stopCamera();
+  function handleStockResult(data) {
+    waitingForResult = false;
 
-    if (!window.isSecureContext || location.protocol !== "https:") {
-      log("HTTPS olmadığı için kamera kullanılamaz.");
+    if (data.success) {
+      successfulScans += 1;
+      scanCounter.textContent = String(successfulScans);
+      stockResult.textContent = mode === "quick"
+        ? "Stok +1 • Yeni stok: " + data.newStock
+        : "Barkod aktarıldı";
+      setMessage(data.message || "İşlem başarıyla tamamlandı.", "success");
+      beep(true);
+      vibrate(true);
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      log("Tarayıcı getUserMedia desteği sunmuyor.");
+    stockResult.textContent = "Hata: " + (data.message || "İşlem tamamlanamadı");
+    setMessage(data.message || "İşlem tamamlanamadı.", "error");
+    beep(false);
+    vibrate(false);
+  }
+
+  window.addEventListener("message", event => {
+    if (!APP_ORIGIN_PATTERN.test(event.origin)) return;
+
+    const data = event.data || {};
+    if (data.source !== "HOCA_MOBILYA_APP") return;
+    appMessageTarget = event.source;
+
+    if (data.type === "OPEN_CAMERA") {
+      openCamera(data.mode);
       return;
     }
 
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-    cameraState.textContent = "Bağlanıyor";
-    log("Kamera izni ve görüntü bekleniyor...");
-
-    try {
-      const constraints = deviceId
-        ? {
-            video: {
-              deviceId: { exact: deviceId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            },
-            audio: false
-          }
-        : {
-            video: {
-              facingMode: { ideal: "environment" },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            },
-            audio: false
-          };
-
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-      video.srcObject = stream;
-      video.muted = true;
-      video.autoplay = true;
-      video.playsInline = true;
-
-      await video.play();
-      await waitForFirstFrame();
-      await getCameras();
-
-      const track = stream.getVideoTracks()[0];
-      const settings = track?.getSettings?.() || {};
-
-      deviceName.textContent = track?.label || "Kamera";
-      cameraState.textContent = "Açık";
-      cover.classList.add("hidden");
-
-      updateVideoStatus();
-
-      log(
-        `Kamera görüntüsü başladı.\n` +
-        `Çözünürlük: ${video.videoWidth || settings.width || 0} × ` +
-        `${video.videoHeight || settings.height || 0}`
-      );
-
-      await startBarcodeScanning();
-    } catch (error) {
-      const messages = {
-        NotAllowedError: "Kamera izni reddedildi.",
-        NotFoundError: "Kamera bulunamadı.",
-        NotReadableError: "Kamera başka bir uygulama tarafından kullanılıyor olabilir.",
-        OverconstrainedError: "Seçilen kamera ayarı desteklenmiyor.",
-        SecurityError: "Güvenlik ayarı kamerayı engelledi.",
-        AbortError: "Kamera işlemi yarıda kesildi."
-      };
-
-      let message = messages[error?.name] || "Kamera görüntüsü başlatılamadı.";
-
-      if (error?.name === "NotAllowedError") {
-        message +=
-          "\n\nBu hata koddan değil, tarayıcı/site izninden gelir." +
-          "\nSite: " + window.location.origin +
-          "\nChrome > Site ayarları > Kamera > İzin ver." +
-          "\nAndroid 12+ kullanıyorsanız hızlı ayarlardaki Kamera erişimi de açık olmalıdır.";
-      }
-
-      await stopCamera();
-      log(message, error);
+    if (data.type === "APP_READY") {
+      appFrameReady = true;
+      return;
     }
-  }
 
-  async function switchCamera() {
-    await getCameras();
+    if (data.type === "SCAN_ACCEPTED") {
+      stockResult.textContent = "Barkod alındı";
+      return;
+    }
 
-    if (cameras.length < 2) return;
+    if (data.type === "STOCK_RESULT") {
+      handleStockResult(data);
+      return;
+    }
 
-    cameraIndex = (cameraIndex + 1) % cameras.length;
-    await startCamera(cameras[cameraIndex].deviceId);
-  }
+    if (data.type === "PRODUCT_REQUIRED") {
+      waitingForResult = false;
+      stockResult.textContent = "Ürün kayıtlı değil";
+      setMessage(data.message || "Ürün kayıtlı değil. Ürün ekleme ekranı açıldı.", "error");
+      beep(false);
+      vibrate(false);
+      window.setTimeout(() => closeCamera(false), 650);
+      return;
+    }
 
-  startBtn.addEventListener("click", async () => {
+    if (data.type === "SCAN_RESUME") {
+      waitingForResult = false;
+      setMessage("Kamera tekrar hazır.", "success");
+      return;
+    }
+
+    if (data.type === "CLOSE_CAMERA" || data.type === "SESSION_CLOSED") {
+      closeCamera(false);
+    }
+  });
+
+  startButton.addEventListener("click", async () => {
     try {
-      await getCameras();
-      cameraIndex = preferredIndex();
-      const selected = cameras[cameraIndex];
-      await startCamera(selected?.deviceId);
+      await enumerateCameras();
+      cameraIndex = preferredCameraIndex();
+      await startCamera(cameras[cameraIndex]?.deviceId || "");
     } catch (_) {
       await startCamera();
     }
   });
 
-  switchBtn.addEventListener("click", switchCamera);
-  stopBtn.addEventListener("click", stopCamera);
+  switchButton.addEventListener("click", async () => {
+    await enumerateCameras();
+    if (cameras.length < 2) return;
+    cameraIndex = (cameraIndex + 1) % cameras.length;
+    await startCamera(cameras[cameraIndex].deviceId);
+  });
 
-  manualBtn.addEventListener("click", () => {
+  torchButton.addEventListener("click", async () => {
+    if (!track) return;
+    try {
+      torchEnabled = !torchEnabled;
+      await track.applyConstraints({ advanced: [{ torch: torchEnabled }] });
+      updateTorchButton();
+    } catch (_) {
+      torchEnabled = false;
+      updateTorchButton();
+      setMessage("Bu cihazda fener kullanılamıyor.", "error");
+    }
+  });
+
+  closeButton.addEventListener("click", () => closeCamera(true));
+  overlay.addEventListener("click", event => {
+    if (event.target === overlay) closeCamera(true);
+  });
+
+  manualButton.addEventListener("click", () => {
     acceptBarcode(manualBarcode.value);
     manualBarcode.value = "";
     manualBarcode.focus();
   });
-
   manualBarcode.addEventListener("keydown", event => {
-    if (event.key === "Enter") manualBtn.click();
+    if (event.key === "Enter") manualButton.click();
   });
 
-  video.addEventListener("loadedmetadata", updateVideoStatus);
-  video.addEventListener("loadeddata", updateVideoStatus);
-  video.addEventListener("canplay", updateVideoStatus);
+  window.addEventListener("pagehide", () => stopCamera());
 
-  video.addEventListener("playing", () => {
-    cameraState.textContent = "Açık";
-    cover.classList.add("hidden");
-    updateVideoStatus();
-  });
-
-  video.addEventListener("error", () => {
-    log("Video öğesinde hata oluştu.", video.error);
-  });
-
-  window.addEventListener("message", event => {
-    if (!isAllowedAppOrigin(event.origin)) return;
-
-    const data = event.data || {};
-    if (data.source !== "HOCA_MOBILYA_APP") return;
-
-    if (data.type === "APP_READY") {
-      appReady = true;
-      appConnection.textContent = "Stok programına bağlı";
-      return;
+  window.setTimeout(() => {
+    if (!appFrameReady) {
+      loader.querySelector("span").textContent = "Uygulama beklenenden uzun sürede açılıyor...";
     }
-
-    if (data.type === "SCAN_ACCEPTED") {
-      scanState.textContent = "Barkod alındı";
-      return;
-    }
-
-    if (data.type === "STOCK_RESULT") {
-      applyStockResult(data, false);
-      return;
-    }
-
-    if (data.type === "PRODUCT_REQUIRED") {
-      waitingForStockResult = false;
-      activeScanId = "";
-      scanState.textContent = "Ürün bulunamadı";
-      appConnection.textContent = data.message || "Ürün stok programında kayıtlı değil";
-      window.setTimeout(() => {
-        if (stream) scanState.textContent = "Taranıyor";
-      }, 900);
-      return;
-    }
-
-    if (data.type === "SCAN_RESUME") {
-      waitingForStockResult = false;
-      activeScanId = "";
-      scanState.textContent = stream ? "Taranıyor" : "Bekliyor";
-      appConnection.textContent = "Stok programına bağlı";
-      return;
-    }
-
-    if (data.type === "CLOSE_CAMERA" || data.type === "SESSION_CLOSED") {
-      stopCamera();
-      window.close();
-    }
-  });
-
-  returnBtn.addEventListener("click", () => {
-    if (window.opener && !window.opener.closed) {
-      try { window.opener.focus(); } catch (_) {}
-    } else {
-      returnToStockApp("", true);
-    }
-  });
-
-  window.addEventListener("pagehide", stopCamera);
-
-  httpsState.textContent =
-    window.isSecureContext && location.protocol === "https:"
-      ? "Uygun"
-      : "Uygun değil";
-
-  updateVideoStatus();
-  prepareZxing();
-  notifyReady();
-  window.setInterval(() => {
-    if (!appReady) notifyReady();
-  }, 1200);
+  }, 12000);
 })();
