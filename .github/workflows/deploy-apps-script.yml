@@ -1,0 +1,53 @@
+name: Deploy Apps Script
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "AppsScript/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apps-script-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install clasp
+        run: npm install --global @google/clasp@3.3.0
+
+      - name: Configure Google authorization
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          test -n "$CLASPRC_JSON"
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+
+      - name: Push Apps Script sources
+        working-directory: AppsScript
+        run: clasp push --force
+
+      - name: Create version and update production deployment
+        working-directory: AppsScript
+        env:
+          DEPLOYMENT_ID: AKfycbzKW87lp7ZpwzvrJr0W36rj_VCScP2MCZJBOdUnU4NX_i2K0fJeUUsjzZapnsT1kjrc
+        run: |
+          OUTPUT="$(clasp version "GitHub Actions ${GITHUB_SHA::7}")"
+          VERSION="$(printf '%s\n' "$OUTPUT" | sed -n 's/.*Created version \([0-9][0-9]*\).*/\1/p')"
+          test -n "$VERSION"
+          clasp deploy -i "$DEPLOYMENT_ID" -V "$VERSION" -d "GitHub Actions ${GITHUB_SHA::7}"
