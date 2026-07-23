@@ -1813,6 +1813,8 @@ function batchQuickStockIn(
 
     SpreadsheetApp.flush();
 
+    ensureCategoryStockSheets_();
+
     return result;
 
   } finally {
@@ -4509,6 +4511,8 @@ function adminSetProductStatus(
       active
     );
 
+  ensureCategoryStockSheets_();
+
   return {
 
     success:
@@ -4592,6 +4596,8 @@ function appendMovement_(
     )
 
   ]);
+
+  ensureCategoryStockSheets_();
 
 }
 
@@ -4742,8 +4748,33 @@ function ensureCategoryStockSheets_() {
   const spreadsheet =
     getSpreadsheet_();
 
-  const sourceSheetName =
-    APP_CONFIG.SHEETS.PRODUCTS;
+  const sourceSheet =
+    spreadsheet.getSheetByName(
+      APP_CONFIG.SHEETS.PRODUCTS
+    );
+
+  if (!sourceSheet) {
+
+    throw new Error(
+      "Urunler sayfası bulunamadı."
+    );
+
+  }
+
+  const sourceRowCount =
+    sourceSheet.getLastRow();
+
+  const sourceRows =
+    sourceRowCount > 1
+      ? sourceSheet
+          .getRange(
+            2,
+            1,
+            sourceRowCount - 1,
+            APP_CONFIG.PRODUCT_HEADERS.length
+          )
+          .getValues()
+      : [];
 
   APP_CONFIG.CATEGORY_STOCK_SHEETS.forEach(
     function (categoryConfig) {
@@ -4762,34 +4793,43 @@ function ensureCategoryStockSheets_() {
 
       }
 
-      const formula =
-        "=QUERY('" +
-        sourceSheetName.replace(
-          /'/g,
-          "''"
-        ) +
-        "'!A:I,\"select * where C = '" +
-        categoryConfig.type.replace(
-          /'/g,
-          "''"
-        ) +
-        "'\",1)";
+      const categoryRows =
+        sourceRows.filter(
+          function (row) {
 
-      const firstCell =
-        categorySheet.getRange(
+            return normalizeProductType_(
+              row[2]
+            ) ===
+            categoryConfig.type;
+
+          }
+        );
+
+      categorySheet.clear();
+
+      categorySheet
+        .getRange(
           1,
-          1
-        );
+          1,
+          1,
+          APP_CONFIG.PRODUCT_HEADERS.length
+        )
+        .setValues([
+          APP_CONFIG.PRODUCT_HEADERS
+        ]);
 
-      if (
-        firstCell.getFormula() !==
-        formula
-      ) {
+      if (categoryRows.length) {
 
-        categorySheet.clear();
-        firstCell.setFormula(
-          formula
-        );
+        categorySheet
+          .getRange(
+            2,
+            1,
+            categoryRows.length,
+            APP_CONFIG.PRODUCT_HEADERS.length
+          )
+          .setValues(
+            categoryRows
+          );
 
       }
 
