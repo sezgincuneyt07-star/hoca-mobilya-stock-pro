@@ -7,11 +7,8 @@
   const CAMERA_DEVICE_KEY = "hoca_mobilya_camera_device";
   const BATCH_DRAFT_KEY = "hoca_mobilya_v16_batch_draft";
   const LEGACY_BATCH_DRAFT_KEYS = ["hoca_mobilya_v15_batch_draft"];
-  const REARM_DELAY_MS = 650;
+  const REARM_DELAY_MS = 1600;
   const REARM_CHECK_INTERVAL_MS = 120;
-  const REARM_MIN_MISSES = 4;
-  const FRAME_CHANGE_THRESHOLD = 26;
-  const FRAME_CHANGE_CHECKS = 3;
 
   const $ = id => document.getElementById(id);
   const frame = $("stockAppFrame");
@@ -85,14 +82,7 @@
   let scanLockedBarcode = "";
   let scanArmed = true;
   let lastDetectionAt = 0;
-  let consecutiveNoResult = 0;
-  let lockedFrameSignature = null;
-  let frameChangeCount = 0;
   let rearmMonitor = null;
-  const signatureCanvas = document.createElement("canvas");
-  signatureCanvas.width = 20;
-  signatureCanvas.height = 14;
-  const signatureContext = signatureCanvas.getContext("2d", { willReadFrequently: true });
 
   const batchItems = new Map();
 
@@ -471,77 +461,14 @@
     scanLockedBarcode = "";
     scanArmed = true;
     lastDetectionAt = 0;
-    consecutiveNoResult = 0;
-    lockedFrameSignature = null;
-    frameChangeCount = 0;
-  }
-
-  function captureFrameSignature() {
-    if (!signatureContext || !video.videoWidth || !video.videoHeight) return null;
-    try {
-      const sourceWidth = video.videoWidth * .72;
-      const sourceHeight = video.videoHeight * .56;
-      const sourceX = (video.videoWidth - sourceWidth) / 2;
-      const sourceY = (video.videoHeight - sourceHeight) / 2;
-      signatureContext.drawImage(
-        video,
-        sourceX,
-        sourceY,
-        sourceWidth,
-        sourceHeight,
-        0,
-        0,
-        signatureCanvas.width,
-        signatureCanvas.height
-      );
-      const pixels = signatureContext.getImageData(
-        0,
-        0,
-        signatureCanvas.width,
-        signatureCanvas.height
-      ).data;
-      const signature = [];
-      for (let index = 0; index < pixels.length; index += 4) {
-        signature.push(
-          Math.round(
-            pixels[index] * .299 +
-            pixels[index + 1] * .587 +
-            pixels[index + 2] * .114
-          )
-        );
-      }
-      return signature;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function frameDifference(first, second) {
-    if (!first || !second || first.length !== second.length) return 0;
-    let total = 0;
-    for (let index = 0; index < first.length; index += 1) {
-      total += Math.abs(first[index] - second[index]);
-    }
-    return total / first.length;
   }
 
   function checkScanRearm() {
     if (scanArmed || !scanLockedBarcode || !lastDetectionAt) return;
     if (Date.now() - lastDetectionAt < REARM_DELAY_MS) return;
-    const currentSignature = captureFrameSignature();
-    const changedEnough =
-      Boolean(lockedFrameSignature && currentSignature) &&
-      frameDifference(lockedFrameSignature, currentSignature) >= FRAME_CHANGE_THRESHOLD;
-    frameChangeCount = changedEnough ? frameChangeCount + 1 : 0;
-    const barcodeMissing =
-      consecutiveNoResult >= REARM_MIN_MISSES ||
-      frameChangeCount >= FRAME_CHANGE_CHECKS;
-    if (!barcodeMissing) return;
     scanArmed = true;
-    consecutiveNoResult = 0;
-    frameChangeCount = 0;
     stockResult.textContent = "Aynı ürün yeniden okutulabilir";
-    setMessage("Barkod kadrajdan çıktı. Aynı ürünü yeniden okutabilirsiniz.", "success");
+    setMessage("Bekleme süresi tamamlandı. Aynı barkod yeniden okunabilir.", "success");
   }
 
   function startRearmMonitor() {
@@ -564,9 +491,6 @@
     scanLockedBarcode = barcode;
     scanArmed = false;
     lastDetectionAt = Date.now();
-    consecutiveNoResult = 0;
-    lockedFrameSignature = captureFrameSignature();
-    frameChangeCount = 0;
   }
 
   async function resumeScannerAfterUnknownProduct() {
@@ -637,12 +561,8 @@
          * Bu nedenle son görülme zamanı her gerçek sonuçta güncellenir.
          * Sonuçlar REARM_DELAY_MS boyunca kesildiğinde monitor yeniden okuma izni verir.
          */
-        lastDetectionAt = Date.now();
-        consecutiveNoResult = 0;
         if (canAcceptBarcode(barcode)) acceptBarcode(barcode);
       } else if (error) {
-        const errorName = String(error.name || error.constructor?.name || "");
-        if (/NotFound/i.test(errorName)) consecutiveNoResult += 1;
         checkScanRearm();
       }
     });
@@ -764,7 +684,7 @@
     addProductToBatch(data.product, 1);
     const item = batchItems.get(data.product.barcode);
     stockResult.textContent = "Listeye eklendi • Adet: " + item.quantity;
-    setMessage(`${productLabel(data.product)} listeye eklendi. Aynı ürünü tekrar okutmak için barkodu kadrajdan çıkarıp yeniden gösterin.`, "success");
+    setMessage(`${productLabel(data.product)} listeye eklendi. Aynı barkod yaklaşık 1,6 saniye sonra yeniden okunabilir.`, "success");
     beep(true); vibrate(true);
   }
 
