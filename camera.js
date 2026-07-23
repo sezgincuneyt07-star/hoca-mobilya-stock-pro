@@ -23,9 +23,27 @@
   const returnBtn = document.getElementById("returnBtn");
 
   const params = new URLSearchParams(window.location.search);
+  const privateParams = new URLSearchParams(
+    String(window.location.hash || "").replace(/^#/, "")
+  );
+
   const cameraMode = params.get("mode") === "stock" ? "stock" : "quick";
   const returnUrl = String(params.get("returnUrl") || "").trim();
   const configuredAppOrigin = String(params.get("appOrigin") || "").trim();
+  const sessionToken = String(privateParams.get("sessionToken") || "").trim();
+  const apiUrlCandidate = String(privateParams.get("apiUrl") || returnUrl || "").trim();
+  const apiUrl = isAllowedApiUrl(apiUrlCandidate) ? apiUrlCandidate : "";
+
+  /* Hassas token adres çubuğunda görünmesin. Değer bellekte tutulmaya devam eder. */
+  if (window.location.hash) {
+    try {
+      window.history.replaceState(
+        {},
+        document.title,
+        window.location.pathname + window.location.search
+      );
+    } catch (_) {}
+  }
 
   let stream = null;
   let cameras = [];
@@ -38,6 +56,19 @@
   let waitingForStockResult = false;
   let activeScanId = "";
   let appReady = false;
+
+  function isAllowedApiUrl(value) {
+    try {
+      const url = new URL(String(value || ""));
+      return (
+        url.protocol === "https:" &&
+        url.hostname === "script.google.com" &&
+        /\/macros\/s\//.test(url.pathname)
+      );
+    } catch (_) {
+      return false;
+    }
+  }
 
   function isAllowedAppOrigin(origin) {
     if (!origin) return false;
@@ -64,12 +95,17 @@
       mode: cameraMode
     });
 
+    if (cameraMode === "quick" && sessionToken && apiUrl) {
+      appConnection.textContent = "Doğrudan stok bağlantısı hazır";
+      return;
+    }
+
     if (sent) {
       appConnection.textContent = appReady
         ? "Stok programına bağlı"
         : "Stok programı yanıtı bekleniyor";
     } else {
-      appConnection.textContent = "Aynı sekme dönüş modu";
+      appConnection.textContent = "Stok uygulamasına dönüş bağlantısı hazır";
     }
   }
 
@@ -79,13 +115,141 @@
     if (barcode) url.searchParams.set("cameraBarcode", barcode);
     url.searchParams.set("cameraMode", cameraMode);
     if (cancelled) url.searchParams.set("cameraCancelled", "1");
+
+    if (sessionToken) {
+      const returnPrivateParams = new URLSearchParams();
+      returnPrivateParams.set("cameraToken", sessionToken);
+      url.hash = returnPrivateParams.toString();
+    }
+
     window.location.assign(url.toString());
   }
 
-  function sendBarcodeToStockApp(barcode) {
+  function callCameraApi(action, payload = {}) {
+    return new Promise((resolve, reject) => {
+      if (!apiUrl || !sessionToken) {
+        reject(new Error("Kamera oturumu bulunamadı. Kamerayı stok uygulamasından yeniden açın."));
+        return;
+      }
+
+      const callbackName =
+        `__hocaCameraApi_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      const script = document.createElement("script");
+      const url = new URL(apiUrl);
+      let finished = false;
+
+      const cleanup = () => {
+        if (finished) return;
+        finished = true;
+        window.clearTimeout(timeoutId);
+        try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+        if (script.parentNode) script.parentNode.removeChild(script);
+      };
+
+      window[callbackName] = response => {
+        cleanup();
+        resolve(response || { success: false, message: "Sunucudan boş yanıt alındı." });
+      };
+
+      url.searchParams.set("cameraApi", "1");
+      url.searchParams.set("action", action);
+      url.searchParams.set("token", sessionToken);
+      url.searchParams.set("callback", callbackName);
+      url.searchParams.set("_", String(Date.now()));
+
+      Object.entries(payload).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          url.searchParams.set(key, String(value));
+        }
+      });
+
+      script.async = true;
+      script.src = url.toString();
+      script.onerror = () => {
+        cleanup();
+        reject(new Error("Stok sunucusuna bağlanılamadı."));
+      };
+
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("Stok sunucusu zaman aşımına uğradı."));
+      }, 20000);
+
+      document.head.appendChild(script);
+    });
+  }
+
+  function applyStockResult(data, syncWithApp = false) {
+    if (data.scanId && activeScanId && data.scanId !== activeScanId) return;
+
+    waitingForStockResult = false;
+    activeScanId = "";
+
+    if (data.success) {
+      barcodeValue.textContent =
+        `${data.barcode || lastBarcode} • Yeni stok: ${data.newStock}`;
+      scanState.textContent = "Stok kaydedildi";
+      appConnection.textContent = data.message || "Doğrudan stok bağlantısı hazır";
+      beep();
+      vibrate();
+      window.setTimeout(() => {
+        if (stream) scanState.textContent = "Taranıyor";
+      }, 500);
+    } else {
+      scanState.textContent =
+        data.code === "PRODUCT_NOT_FOUND"
+          ? "Ürün bulunamadı"
+          : "Stok işlemi başarısız";
+      appConnection.textContent = data.message || "Stok işlemi yapılamadı";
+      window.setTimeout(() => {
+        if (stream) scanState.textContent = "Taranıyor";
+      }, 900);
+    }
+
+    if (syncWithApp) {
+      postToStockApp({
+        source: "HOCA_MOBILYA_CAMERA",
+        type: "DIRECT_STOCK_RESULT",
+        success: Boolean(data.success),
+        barcode: data.barcode || lastBarcode,
+        newStock: data.newStock,
+        productName:
+          data.product && data.product.model
+            ? data.product.model
+            : "Ürün",
+        code: data.code || "",
+        message: data.message || ""
+      });
+    }
+  }
+
+  async function sendBarcodeToStockApp(barcode) {
     activeScanId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     waitingForStockResult = true;
-    scanState.textContent = "Stok kaydı bekleniyor";
+    scanState.textContent =
+      cameraMode === "quick"
+        ? "Stok +1 kaydediliyor"
+        : "Barkod aktarılıyor";
+
+    if (cameraMode === "quick") {
+      try {
+        const result = await callCameraApi("quickStockIn", {
+          barcode,
+          scanId: activeScanId
+        });
+        applyStockResult(result, true);
+      } catch (error) {
+        applyStockResult({
+          success: false,
+          barcode,
+          code: "CONNECTION_ERROR",
+          message: error && error.message
+            ? error.message
+            : "Stok sunucusuna bağlanılamadı."
+        }, true);
+      }
+      return;
+    }
 
     const sent = postToStockApp({
       source: "HOCA_MOBILYA_CAMERA",
@@ -440,34 +604,18 @@
     }
 
     if (data.type === "STOCK_RESULT") {
-      if (data.scanId && activeScanId && data.scanId !== activeScanId) return;
-
-      waitingForStockResult = false;
-      activeScanId = "";
-
-      if (data.success) {
-        barcodeValue.textContent = `${data.barcode || lastBarcode} • Yeni stok: ${data.newStock}`;
-        scanState.textContent = "Stok kaydedildi";
-        appConnection.textContent = data.message || "Stok programına bağlı";
-        beep();
-        vibrate();
-        window.setTimeout(() => {
-          if (stream) scanState.textContent = "Taranıyor";
-        }, 700);
-      } else {
-        scanState.textContent = "Stok işlemi başarısız";
-        appConnection.textContent = data.message || "Stok işlemi yapılamadı";
-        window.setTimeout(() => {
-          waitingForStockResult = false;
-          if (stream) scanState.textContent = "Taranıyor";
-        }, 1200);
-      }
+      applyStockResult(data, false);
       return;
     }
 
     if (data.type === "PRODUCT_REQUIRED") {
-      scanState.textContent = "Yeni ürün kaydı bekleniyor";
+      waitingForStockResult = false;
+      activeScanId = "";
+      scanState.textContent = "Ürün bulunamadı";
       appConnection.textContent = data.message || "Ürün stok programında kayıtlı değil";
+      window.setTimeout(() => {
+        if (stream) scanState.textContent = "Taranıyor";
+      }, 900);
       return;
     }
 
