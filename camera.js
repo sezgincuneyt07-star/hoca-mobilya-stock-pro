@@ -1,12 +1,14 @@
 (() => {
   "use strict";
 
-  const VERSION = "15.0.0";
+  const VERSION = "16.0.0";
   const APP_URL = "https://script.google.com/macros/s/AKfycbzKW87lp7ZpwzvrJr0W36rj_VCScP2MCZJBOdUnU4NX_i2K0fJeUUsjzZapnsT1kjrc/exec";
   const APP_ORIGIN_PATTERN = /^https:\/\/(script\.google\.com|(?:[a-z0-9-]+-)?script\.googleusercontent\.com)$/i;
-  const CAMERA_DEVICE_KEY = "hoca_mobilya_v15_camera_device";
-  const BATCH_DRAFT_KEY = "hoca_mobilya_v15_batch_draft";
-  const REARM_DELAY_MS = 650;
+  const CAMERA_DEVICE_KEY = "hoca_mobilya_camera_device";
+  const BATCH_DRAFT_KEY = "hoca_mobilya_v16_batch_draft";
+  const LEGACY_BATCH_DRAFT_KEYS = ["hoca_mobilya_v15_batch_draft"];
+  const REARM_DELAY_MS = 520;
+  const REARM_CHECK_INTERVAL_MS = 120;
 
   const $ = id => document.getElementById(id);
   const frame = $("stockAppFrame");
@@ -80,7 +82,7 @@
   let scanLockedBarcode = "";
   let scanArmed = true;
   let lastDetectionAt = 0;
-  let rearmTimer = null;
+  let rearmMonitor = null;
 
   const batchItems = new Map();
 
@@ -188,11 +190,19 @@
 
   function readDraft() {
     try {
-      const raw = localStorage.getItem(BATCH_DRAFT_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!parsed || !Array.isArray(parsed.items) || !parsed.items.length) return null;
-      return parsed;
+      const keys = [BATCH_DRAFT_KEY, ...LEGACY_BATCH_DRAFT_KEYS];
+      for (const key of keys) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !Array.isArray(parsed.items) || !parsed.items.length) continue;
+        if (key !== BATCH_DRAFT_KEY) {
+          localStorage.setItem(BATCH_DRAFT_KEY, raw);
+          localStorage.removeItem(key);
+        }
+        return parsed;
+      }
+      return null;
     } catch (_) {
       return null;
     }
@@ -200,6 +210,7 @@
 
   function deleteSavedDraft() {
     localStorage.removeItem(BATCH_DRAFT_KEY);
+    LEGACY_BATCH_DRAFT_KEYS.forEach(key => localStorage.removeItem(key));
     savedDraftCandidate = null;
     draftRestoreModal.classList.add("hidden");
     draftRestoreModal.setAttribute("aria-hidden", "true");
@@ -450,19 +461,25 @@
     scanLockedBarcode = "";
     scanArmed = true;
     lastDetectionAt = 0;
-    if (rearmTimer) clearTimeout(rearmTimer);
-    rearmTimer = null;
   }
 
-  function markBarcodeAbsent() {
-    if (scanArmed || !scanLockedBarcode) return;
-    if (rearmTimer) clearTimeout(rearmTimer);
-    rearmTimer = window.setTimeout(() => {
-      if (Date.now() - lastDetectionAt >= REARM_DELAY_MS) {
-        scanArmed = true;
-        stockResult.textContent = "Aynı ürün yeniden okutulabilir";
-      }
-    }, REARM_DELAY_MS + 40);
+  function checkScanRearm() {
+    if (scanArmed || !scanLockedBarcode || !lastDetectionAt) return;
+    if (Date.now() - lastDetectionAt < REARM_DELAY_MS) return;
+    scanArmed = true;
+    stockResult.textContent = "Aynı ürün yeniden okutulabilir";
+    setMessage("Barkod kadrajdan çıktı. Aynı ürünü yeniden okutabilirsiniz.", "success");
+  }
+
+  function startRearmMonitor() {
+    if (rearmMonitor) window.clearInterval(rearmMonitor);
+    rearmMonitor = window.setInterval(checkScanRearm, REARM_CHECK_INTERVAL_MS);
+  }
+
+  function stopRearmMonitor() {
+    if (!rearmMonitor) return;
+    window.clearInterval(rearmMonitor);
+    rearmMonitor = null;
   }
 
   function canAcceptBarcode(barcode) {
@@ -474,8 +491,6 @@
     scanLockedBarcode = barcode;
     scanArmed = false;
     lastDetectionAt = Date.now();
-    if (rearmTimer) clearTimeout(rearmTimer);
-    rearmTimer = null;
   }
 
   async function resumeScannerAfterUnknownProduct() {
@@ -511,6 +526,7 @@
   }
 
   function stopScanner() {
+    stopRearmMonitor();
     if (controls) { try { controls.stop(); } catch (_) {} controls = null; }
     if (reader) { try { reader.reset(); } catch (_) {} reader = null; }
   }
@@ -534,15 +550,21 @@
       throw new Error("Barkod okuyucu yüklenemedi. İnternet bağlantısını kontrol edin.");
     }
     reader = new window.ZXingBrowser.BrowserMultiFormatReader();
-    cameraEngine.textContent = "ZXing aktif • Kontrollü tekrar okuma";
+    cameraEngine.textContent = "ZXing aktif • Kadraj çıkışı algılanıyor";
+    startRearmMonitor();
     controls = await reader.decodeFromVideoElement(video, (result, error) => {
       if (result) {
         const barcode = String(result.getText() || "").trim();
+        if (!barcode) return;
+        /*
+         * Barkod kadrajda kaldığı sürece ZXing aynı sonucu tekrar üretir.
+         * Bu nedenle son görülme zamanı her gerçek sonuçta güncellenir.
+         * Sonuçlar REARM_DELAY_MS boyunca kesildiğinde monitor yeniden okuma izni verir.
+         */
         lastDetectionAt = Date.now();
-        if (rearmTimer) { clearTimeout(rearmTimer); rearmTimer = null; }
-        if (barcode && canAcceptBarcode(barcode)) acceptBarcode(barcode);
+        if (canAcceptBarcode(barcode)) acceptBarcode(barcode);
       } else if (error) {
-        markBarcodeAbsent();
+        checkScanRearm();
       }
     });
   }
