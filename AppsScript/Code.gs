@@ -36,7 +36,10 @@ const APP_CONFIG = {
       "Personeller",
 
     BATCH_TRANSACTIONS:
-      "TopluIslemler"
+      "TopluIslemler",
+
+    STOCK_SUMMARY:
+      "Stok Özeti"
 
   },
 
@@ -4805,11 +4808,95 @@ function ensureCategoryStockSheets_() {
           }
         );
 
+      categorySheet.getBandings().forEach(
+        function (banding) {
+
+          banding.remove();
+
+        }
+      );
+
+      categorySheet
+        .getRange(
+          1,
+          1,
+          2,
+          APP_CONFIG.PRODUCT_HEADERS.length
+        )
+        .breakApart();
+
       categorySheet.clear();
 
       categorySheet
         .getRange(
           1,
+          1,
+          1,
+          APP_CONFIG.PRODUCT_HEADERS.length
+        )
+        .merge()
+        .setValue(
+          categoryConfig.type.toUpperCase() +
+          " STOK LİSTESİ"
+        )
+        .setBackground(
+          "#171717"
+        )
+        .setFontColor(
+          "#f6c453"
+        )
+        .setFontSize(
+          16
+        )
+        .setFontWeight(
+          "bold"
+        )
+        .setHorizontalAlignment(
+          "left"
+        );
+
+      categorySheet
+        .getRange(
+          2,
+          1,
+          1,
+          APP_CONFIG.PRODUCT_HEADERS.length
+        )
+        .merge()
+        .setValue(
+          categoryRows.length +
+          " ürün çeşidi • Toplam stok: " +
+          categoryRows.reduce(
+            function (total, row) {
+
+              return total +
+                toNonNegativeInteger_(
+                  row[6]
+                );
+
+            },
+            0
+          ) +
+          " • Son güncelleme: " +
+          Utilities.formatDate(
+            new Date(),
+            Session.getScriptTimeZone(),
+            "dd.MM.yyyy HH:mm"
+          )
+        )
+        .setBackground(
+          "#fff7e6"
+        )
+        .setFontColor(
+          "#5f4b22"
+        )
+        .setFontSize(
+          10
+        );
+
+      categorySheet
+        .getRange(
+          4,
           1,
           1,
           APP_CONFIG.PRODUCT_HEADERS.length
@@ -4822,7 +4909,7 @@ function ensureCategoryStockSheets_() {
 
         categorySheet
           .getRange(
-            2,
+            5,
             1,
             categoryRows.length,
             APP_CONFIG.PRODUCT_HEADERS.length
@@ -4834,12 +4921,12 @@ function ensureCategoryStockSheets_() {
       }
 
       categorySheet.setFrozenRows(
-        1
+        4
       );
 
       categorySheet
         .getRange(
-          1,
+          4,
           1,
           1,
           APP_CONFIG.PRODUCT_HEADERS.length
@@ -4852,7 +4939,138 @@ function ensureCategoryStockSheets_() {
         )
         .setFontWeight(
           "bold"
+        )
+        .setHorizontalAlignment(
+          "center"
         );
+
+      categorySheet.setHiddenGridlines(
+        true
+      );
+
+      categorySheet.setTabColor(
+        "#f6a800"
+      );
+
+      if (categoryRows.length) {
+
+        const dataRange =
+          categorySheet.getRange(
+            5,
+            1,
+            categoryRows.length,
+            APP_CONFIG.PRODUCT_HEADERS.length
+          );
+
+        dataRange
+          .setVerticalAlignment(
+            "middle"
+          )
+          .setFontSize(
+            10
+          );
+
+        dataRange
+          .applyRowBanding(
+            SpreadsheetApp.BandingTheme.LIGHT_GREY
+          );
+
+        categorySheet
+          .getRange(
+            5,
+            7,
+            categoryRows.length,
+            2
+          )
+          .setNumberFormat(
+            "0"
+          )
+          .setHorizontalAlignment(
+            "center"
+          )
+          .setFontWeight(
+            "bold"
+          );
+
+        const stockRange =
+          categorySheet.getRange(
+            5,
+            7,
+            categoryRows.length,
+            1
+          );
+
+        categorySheet.setConditionalFormatRules([
+          SpreadsheetApp
+            .newConditionalFormatRule()
+            .whenNumberEqualTo(
+              0
+            )
+            .setBackground(
+              "#fde8e8"
+            )
+            .setFontColor(
+              "#b42318"
+            )
+            .setBold(
+              true
+            )
+            .setRanges([
+              stockRange
+            ])
+            .build(),
+          SpreadsheetApp
+            .newConditionalFormatRule()
+            .whenFormulaSatisfied(
+              "=$G5<=$H5"
+            )
+            .setBackground(
+              "#fff3cd"
+            )
+            .setFontColor(
+              "#8a5a00"
+            )
+            .setRanges([
+              stockRange
+            ])
+            .build(),
+          SpreadsheetApp
+            .newConditionalFormatRule()
+            .whenFormulaSatisfied(
+              "=$G5>$H5"
+            )
+            .setBackground(
+              "#e7f6ec"
+            )
+            .setFontColor(
+              "#137333"
+            )
+            .setRanges([
+              stockRange
+            ])
+            .build()
+        ]);
+
+      } else {
+
+        categorySheet.setConditionalFormatRules(
+          []
+        );
+
+      }
+
+      categorySheet.setRowHeight(
+        1,
+        36
+      );
+      categorySheet.setRowHeight(
+        2,
+        28
+      );
+      categorySheet.setRowHeight(
+        4,
+        32
+      );
 
       categorySheet.setColumnWidth(
         1,
@@ -4892,6 +5110,261 @@ function ensureCategoryStockSheets_() {
       );
 
     }
+  );
+
+  refreshStockSummarySheet_(
+    spreadsheet,
+    sourceRows
+  );
+
+}
+
+
+function refreshStockSummarySheet_(
+  spreadsheet,
+  sourceRows
+) {
+
+  let summarySheet =
+    spreadsheet.getSheetByName(
+      APP_CONFIG.SHEETS.STOCK_SUMMARY
+    );
+
+  if (!summarySheet) {
+
+    summarySheet =
+      spreadsheet.insertSheet(
+        APP_CONFIG.SHEETS.STOCK_SUMMARY
+      );
+
+  }
+
+  const summaryRows =
+    APP_CONFIG.CATEGORY_STOCK_SHEETS.map(
+      function (categoryConfig) {
+
+        const categoryRows =
+          sourceRows.filter(
+            function (row) {
+
+              return normalizeProductType_(
+                row[2]
+              ) ===
+              categoryConfig.type;
+
+            }
+          );
+
+        const totalStock =
+          categoryRows.reduce(
+            function (total, row) {
+
+              return total +
+                toNonNegativeInteger_(
+                  row[6]
+                );
+
+            },
+            0
+          );
+
+        const criticalCount =
+          categoryRows.filter(
+            function (row) {
+
+              const stock =
+                toNonNegativeInteger_(
+                  row[6]
+                );
+
+              const critical =
+                toNonNegativeInteger_(
+                  row[7]
+                );
+
+              return stock > 0 &&
+                stock <= critical;
+
+            }
+          ).length;
+
+        const outOfStockCount =
+          categoryRows.filter(
+            function (row) {
+
+              return toNonNegativeInteger_(
+                row[6]
+              ) === 0;
+
+            }
+          ).length;
+
+        return [
+          categoryConfig.type,
+          categoryRows.length,
+          totalStock,
+          criticalCount,
+          outOfStockCount
+        ];
+
+      }
+    );
+
+  summarySheet.getBandings().forEach(
+    function (banding) {
+
+      banding.remove();
+
+    }
+  );
+
+  summarySheet
+    .getRange(
+      "A1:E2"
+    )
+    .breakApart();
+
+  summarySheet.clear();
+  summarySheet.setHiddenGridlines(
+    true
+  );
+  summarySheet.setTabColor(
+    "#171717"
+  );
+  summarySheet.setFrozenRows(
+    5
+  );
+
+  summarySheet
+    .getRange(
+      "A1:E1"
+    )
+    .merge()
+    .setValue(
+      "HOCA MOBİLYA • STOK ÖZETİ"
+    )
+    .setBackground(
+      "#171717"
+    )
+    .setFontColor(
+      "#f6c453"
+    )
+    .setFontSize(
+      18
+    )
+    .setFontWeight(
+      "bold"
+    );
+
+  summarySheet
+    .getRange(
+      "A2:E2"
+    )
+    .merge()
+    .setValue(
+      "Son güncelleme: " +
+      Utilities.formatDate(
+        new Date(),
+        Session.getScriptTimeZone(),
+        "dd.MM.yyyy HH:mm"
+      )
+    )
+    .setBackground(
+      "#fff7e6"
+    )
+    .setFontColor(
+      "#5f4b22"
+    );
+
+  summarySheet
+    .getRange(
+      5,
+      1,
+      1,
+      5
+    )
+    .setValues([[
+      "Kategori",
+      "Ürün Çeşidi",
+      "Toplam Stok",
+      "Kritik Ürün",
+      "Tükenen Ürün"
+    ]])
+    .setBackground(
+      "#171717"
+    )
+    .setFontColor(
+      "#f6c453"
+    )
+    .setFontWeight(
+      "bold"
+    )
+    .setHorizontalAlignment(
+      "center"
+    );
+
+  summarySheet
+    .getRange(
+      6,
+      1,
+      summaryRows.length,
+      5
+    )
+    .setValues(
+      summaryRows
+    )
+    .setVerticalAlignment(
+      "middle"
+    );
+
+  summarySheet
+    .getRange(
+      6,
+      2,
+      summaryRows.length,
+      4
+    )
+    .setNumberFormat(
+      "0"
+    )
+    .setHorizontalAlignment(
+      "center"
+    )
+    .setFontWeight(
+      "bold"
+    );
+
+  summarySheet
+    .getRange(
+      6,
+      1,
+      summaryRows.length,
+      5
+    )
+    .applyRowBanding(
+      SpreadsheetApp.BandingTheme.LIGHT_GREY
+    );
+
+  summarySheet.setColumnWidth(
+    1,
+    180
+  );
+  summarySheet.setColumnWidths(
+    2,
+    4,
+    125
+  );
+  summarySheet.setRowHeight(
+    1,
+    42
+  );
+  summarySheet.setRowHeight(
+    2,
+    28
+  );
+  summarySheet.setRowHeight(
+    5,
+    34
   );
 
 }
