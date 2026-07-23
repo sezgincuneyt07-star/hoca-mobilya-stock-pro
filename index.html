@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#232832">
-  <title>HOCA MOBİLYA STOK PRO V11</title>
-  <link rel="stylesheet" href="style.css?v=11">
+  <title>HOCA MOBİLYA STOK PRO V13</title>
+  <link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
   <div id="appLoader" class="app-loader">
@@ -29,7 +29,7 @@
       <header class="camera-header">
         <div>
           <span>HOCA MOBİLYA STOK PRO</span>
-          <strong id="cameraTitle">Hızlı Kamera</strong>
+          <strong id="cameraTitle">Hızlı Kamera — Liste ve Son Onay</strong>
         </div>
         <button id="closeCameraButton" class="icon-button" type="button" aria-label="Kamerayı kapat">×</button>
       </header>
@@ -56,25 +56,83 @@
           <strong id="lastBarcode">Henüz okutulmadı</strong>
         </article>
         <article>
-          <span>İşlem sonucu</span>
+          <span>Son işlem</span>
           <strong id="stockResult">Barkod bekleniyor</strong>
         </article>
         <article>
-          <span>Başarılı işlem</span>
+          <span>Listede toplam adet</span>
           <strong id="scanCounter">0</strong>
         </article>
       </div>
 
-      <p id="cameraMessage" class="camera-message">Kamerayı başlatın ve barkodu çerçevenin içine tutun.</p>
+      <p id="cameraMessage" class="camera-message">
+        Barkodları okutun. Stok, yalnızca listeyi kontrol edip son onayı verdiğinizde değişir.
+      </p>
+
+      <div id="unknownProductActions" class="camera-unknown-product hidden" role="dialog" aria-live="assertive">
+        <div class="camera-unknown-product-icon">!</div>
+        <div class="camera-unknown-product-content">
+          <strong>Ürün kayıtlı değil</strong>
+          <span>Okutulan barkod: <b id="unknownProductBarcode">-</b></span>
+          <small>Yeni ürün ekleyebilir veya bu barkodu geçip tekrar okutabilirsiniz.</small>
+        </div>
+        <div class="camera-unknown-product-buttons">
+          <button id="retryUnknownBarcodeButton" type="button">Tekrar Barkod Okut</button>
+          <button id="addUnknownProductFromCameraButton" class="primary-button" type="button">Yeni Ürün Ekle</button>
+        </div>
+      </div>
+
+      <section id="cameraBatchPanel" class="camera-batch-panel">
+        <div class="camera-batch-heading">
+          <div>
+            <span>ONAY BEKLEYEN LİSTE</span>
+            <strong>Okutulan ürünler</strong>
+          </div>
+          <div class="camera-batch-counts">
+            <b><span id="batchProductCount">0</span> farklı ürün</b>
+            <b><span id="batchQuantityCount">0</span> toplam adet</b>
+          </div>
+        </div>
+
+        <div id="cameraBatchEmpty" class="camera-batch-empty">
+          Henüz listeye ürün eklenmedi. Barkod okutmaya başlayabilirsiniz.
+        </div>
+        <div id="cameraBatchList" class="camera-batch-list hidden"></div>
+
+        <div class="camera-batch-actions">
+          <button id="clearBatchButton" type="button" disabled>Listeyi Temizle</button>
+          <button id="submitBatchButton" class="primary-button" type="button" disabled>Stoğa Ekle</button>
+        </div>
+      </section>
 
       <div class="manual-row">
         <input id="manualBarcode" type="text" inputmode="numeric" autocomplete="off" placeholder="Manuel barkod">
-        <button id="manualBarcodeButton" class="primary-button" type="button">Barkodu Kullan</button>
+        <button id="manualBarcodeButton" class="primary-button" type="button">Listeye Ekle</button>
       </div>
     </div>
   </section>
 
+  <div id="batchConfirmModal" class="batch-confirm-backdrop hidden" aria-hidden="true">
+    <div class="batch-confirm-card" role="dialog" aria-modal="true" aria-labelledby="batchConfirmTitle">
+      <span class="batch-confirm-label">SON KONTROL</span>
+      <h2 id="batchConfirmTitle">Stok girişini onaylıyor musunuz?</h2>
+      <p>Onaydan sonra listedeki bütün ürünler tek işlem grubu olarak stoğa eklenecek.</p>
+
+      <div class="batch-confirm-summary">
+        <div><span>Farklı ürün</span><strong id="confirmProductCount">0</strong></div>
+        <div><span>Toplam adet</span><strong id="confirmQuantityCount">0</strong></div>
+        <div><span>Onaylayan</span><strong id="confirmPersonnel">-</strong></div>
+      </div>
+
+      <p id="confirmMessage" class="batch-confirm-message"></p>
+      <div class="batch-confirm-actions">
+        <button id="cancelBatchConfirmButton" type="button">Listeye Dön</button>
+        <button id="approveBatchButton" class="primary-button" type="button">Onayla ve Stoğa Ekle</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/@zxing/browser@0.2.0/umd/zxing-browser.min.js"></script>
-  <script src="camera.js?v=11"></script>
+  <script src="camera.js?v=13"></script>
 </body>
 </html>

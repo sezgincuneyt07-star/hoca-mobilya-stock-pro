@@ -67,7 +67,7 @@ button { cursor: pointer; }
 }
 
 .camera-shell {
-  width: min(760px, 100%);
+  width: min(980px, 100%);
   max-height: calc(100vh - 36px);
   overflow: auto;
   border-radius: 22px;
@@ -253,4 +253,331 @@ button { cursor: pointer; }
   .camera-status-grid { grid-template-columns: 1fr; padding: 0 10px; }
   .camera-message { margin: 12px 10px; }
   .manual-row { padding: 0 10px 16px; }
+}
+
+
+/* V12 - Kayıtlı olmayan ürün karar alanı */
+.camera-unknown-product {
+  margin: 0 18px 16px;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px 14px;
+  align-items: start;
+  border: 2px solid #f3a45f;
+  border-radius: 16px;
+  background: #fff7ed;
+  box-shadow: 0 10px 28px rgba(141, 75, 15, .12);
+}
+
+.camera-unknown-product-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--orange);
+  font-size: 23px;
+  font-weight: 900;
+}
+
+.camera-unknown-product-content strong,
+.camera-unknown-product-content span,
+.camera-unknown-product-content small {
+  display: block;
+}
+
+.camera-unknown-product-content strong {
+  margin-bottom: 5px;
+  color: #7c3d08;
+  font-size: 17px;
+}
+
+.camera-unknown-product-content span {
+  color: #8a4b08;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.camera-unknown-product-content small {
+  margin-top: 6px;
+  color: #9a5d25;
+  line-height: 1.45;
+}
+
+.camera-unknown-product-buttons {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.camera-unknown-product-buttons button {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid #edc39c;
+  border-radius: 12px;
+  color: var(--text);
+  background: #fff;
+  font-weight: 900;
+}
+
+@media (max-width: 680px) {
+  .camera-unknown-product { margin: 0 10px 12px; }
+  .camera-unknown-product-buttons { grid-template-columns: 1fr; }
+}
+
+
+/* V13 - Toplu kamera listesi ve son onay */
+.camera-batch-panel {
+  margin: 0 18px 18px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(35, 40, 50, .08);
+}
+
+.camera-batch-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #fafafa;
+}
+
+.camera-batch-heading > div:first-child span,
+.camera-batch-heading > div:first-child strong {
+  display: block;
+}
+
+.camera-batch-heading > div:first-child span {
+  margin-bottom: 4px;
+  color: var(--orange);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .13em;
+}
+
+.camera-batch-heading > div:first-child strong {
+  font-size: 18px;
+}
+
+.camera-batch-counts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.camera-batch-counts b {
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: #7c3d08;
+  background: #fff3e7;
+  font-size: 12px;
+}
+
+.camera-batch-empty {
+  padding: 24px 18px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.camera-batch-list {
+  max-height: 340px;
+  overflow: auto;
+}
+
+.camera-batch-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.camera-batch-row:last-child {
+  border-bottom: 0;
+}
+
+.camera-batch-info strong,
+.camera-batch-info span,
+.camera-batch-info small {
+  display: block;
+}
+
+.camera-batch-info strong {
+  margin-bottom: 5px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.camera-batch-info span {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.camera-batch-info small {
+  margin-top: 6px;
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.camera-batch-quantity {
+  display: grid;
+  grid-template-columns: 38px 42px 38px auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.camera-batch-quantity button,
+.camera-batch-quantity strong {
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f7f8fa;
+  font-weight: 900;
+}
+
+.camera-batch-quantity button {
+  color: var(--text);
+}
+
+.camera-batch-quantity .remove-button {
+  padding: 0 11px;
+  color: var(--danger);
+  background: #fff6f6;
+}
+
+.camera-batch-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--line);
+  background: #fafafa;
+}
+
+.camera-batch-actions button,
+.batch-confirm-actions button {
+  min-height: 48px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f0f2f5;
+  color: var(--text);
+  font-weight: 900;
+}
+
+.camera-batch-actions button:disabled,
+.batch-confirm-actions button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.batch-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(10, 14, 22, .78);
+  backdrop-filter: blur(5px);
+}
+
+.batch-confirm-card {
+  width: min(560px, 100%);
+  padding: 26px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 30px 90px rgba(0,0,0,.42);
+}
+
+.batch-confirm-label {
+  color: var(--orange);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .13em;
+}
+
+.batch-confirm-card h2 {
+  margin: 8px 0 8px;
+  font-size: 24px;
+}
+
+.batch-confirm-card > p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.batch-confirm-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.batch-confirm-summary div {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fafafa;
+}
+
+.batch-confirm-summary span,
+.batch-confirm-summary strong {
+  display: block;
+}
+
+.batch-confirm-summary span {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.batch-confirm-summary strong {
+  overflow-wrap: anywhere;
+  font-size: 17px;
+}
+
+.batch-confirm-message {
+  min-height: 22px;
+  margin: 0 0 14px !important;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.batch-confirm-message.error {
+  color: var(--danger);
+}
+
+.batch-confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 680px) {
+  .camera-batch-panel { margin: 0 10px 12px; }
+  .camera-batch-heading { align-items: flex-start; padding: 14px 12px; }
+  .camera-batch-counts { display: grid; justify-items: end; }
+  .camera-batch-row { grid-template-columns: 1fr; padding: 14px 12px; }
+  .camera-batch-quantity { grid-template-columns: 42px 48px 42px minmax(70px, auto); }
+  .camera-batch-actions { padding: 12px; }
+  .batch-confirm-card { padding: 20px 16px; }
+  .batch-confirm-summary { grid-template-columns: 1fr; }
+  .batch-confirm-actions { grid-template-columns: 1fr; }
 }
