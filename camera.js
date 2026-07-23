@@ -7,8 +7,9 @@
   const CAMERA_DEVICE_KEY = "hoca_mobilya_camera_device";
   const BATCH_DRAFT_KEY = "hoca_mobilya_v16_batch_draft";
   const LEGACY_BATCH_DRAFT_KEYS = ["hoca_mobilya_v15_batch_draft"];
-  const REARM_DELAY_MS = 520;
+  const REARM_DELAY_MS = 650;
   const REARM_CHECK_INTERVAL_MS = 120;
+  const REARM_MIN_MISSES = 6;
 
   const $ = id => document.getElementById(id);
   const frame = $("stockAppFrame");
@@ -82,6 +83,8 @@
   let scanLockedBarcode = "";
   let scanArmed = true;
   let lastDetectionAt = 0;
+  let consecutiveNoResult = 0;
+  let rearmRestarting = false;
   let rearmMonitor = null;
 
   const batchItems = new Map();
@@ -461,14 +464,38 @@
     scanLockedBarcode = "";
     scanArmed = true;
     lastDetectionAt = 0;
+    consecutiveNoResult = 0;
   }
 
   function checkScanRearm() {
     if (scanArmed || !scanLockedBarcode || !lastDetectionAt) return;
+    if (consecutiveNoResult < REARM_MIN_MISSES) return;
     if (Date.now() - lastDetectionAt < REARM_DELAY_MS) return;
     scanArmed = true;
+    consecutiveNoResult = 0;
     stockResult.textContent = "Aynı ürün yeniden okutulabilir";
     setMessage("Barkod kadrajdan çıktı. Aynı ürünü yeniden okutabilirsiniz.", "success");
+    restartDecoderAfterRearm();
+  }
+
+  async function restartDecoderAfterRearm() {
+    if (rearmRestarting || !stream || batchSubmitting || confirmOpen) return;
+    rearmRestarting = true;
+    try {
+      if (controls) {
+        try { controls.stop(); } catch (_) {}
+        controls = null;
+      }
+      if (reader) {
+        try { reader.reset(); } catch (_) {}
+        reader = null;
+      }
+      await startScanner();
+    } catch (error) {
+      setMessage("Barkod okuyucu yeniden hazırlanamadı: " + (error?.message || error), "error");
+    } finally {
+      rearmRestarting = false;
+    }
   }
 
   function startRearmMonitor() {
@@ -491,6 +518,7 @@
     scanLockedBarcode = barcode;
     scanArmed = false;
     lastDetectionAt = Date.now();
+    consecutiveNoResult = 0;
   }
 
   async function resumeScannerAfterUnknownProduct() {
@@ -562,8 +590,11 @@
          * Sonuçlar REARM_DELAY_MS boyunca kesildiğinde monitor yeniden okuma izni verir.
          */
         lastDetectionAt = Date.now();
+        consecutiveNoResult = 0;
         if (canAcceptBarcode(barcode)) acceptBarcode(barcode);
       } else if (error) {
+        const errorName = String(error.name || error.constructor?.name || "");
+        if (/NotFound/i.test(errorName)) consecutiveNoResult += 1;
         checkScanRearm();
       }
     });
