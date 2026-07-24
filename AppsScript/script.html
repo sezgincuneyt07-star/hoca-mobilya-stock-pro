@@ -75,6 +75,7 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
     stock: ["Stok İşlemi", "Stok giriş ve çıkış işlemleri"],
     camera: ["Hızlı Kamera", "Cihazda korunan liste ve güvenli son onay"],
     products: ["Ürünler", "Ürün arama ve ürün yönetimi"],
+    documents: ["Belgeler", "Teklif, satış, teslimat ve belge arşivi"],
     daily: ["Günlük Kontrol", "Günlük stok hareketleri"],
     bulk: ["Toplu Stok", "Ürün gruplarına göre stok listesi"],
     reports: ["Stok Raporları", "Kategori bazlı ürün ve stok raporları"],
@@ -901,6 +902,10 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
         () => $("productSearchInput").focus(),
         50
       );
+    }
+
+    if (pageName === "documents") {
+      loadDocumentArchive();
     }
 
     if (pageName === "daily") {
@@ -3852,6 +3857,274 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
     }
   }
 
+  let documentItems = [];
+
+  function formatDocumentCurrency(value) {
+    return new Intl.NumberFormat("tr-TR", {
+      style: "currency",
+      currency: "TRY"
+    }).format(Number(value) || 0);
+  }
+
+  function documentEscape(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function addDocumentItem(item = {}) {
+    documentItems.push({
+      description: item.description || "",
+      quantity: Math.max(1, Number(item.quantity) || 1),
+      unitPrice: Math.max(0, Number(item.unitPrice) || 0)
+    });
+    renderDocumentItems();
+  }
+
+  function renderDocumentItems() {
+    const body = $("documentItemsBody");
+    if (!body) return;
+    body.innerHTML = "";
+
+    documentItems.forEach((item, index) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td><input class="document-item-description" data-index="${index}" type="text" value="${documentEscape(item.description)}" placeholder="Ürün veya hizmet açıklaması"></td>
+        <td><input class="document-item-quantity" data-index="${index}" type="number" min="1" step="1" value="${item.quantity}"></td>
+        <td><input class="document-item-price" data-index="${index}" type="number" min="0" step="0.01" value="${item.unitPrice}"></td>
+        <td class="document-line-total">${formatDocumentCurrency(item.quantity * item.unitPrice)}</td>
+        <td><button class="document-remove-item" data-index="${index}" type="button" aria-label="Satırı sil">×</button></td>
+      `;
+      body.appendChild(row);
+    });
+
+    body.querySelectorAll("input").forEach(input => {
+      input.addEventListener("input", event => {
+        const index = Number(event.target.dataset.index);
+        if (event.target.classList.contains("document-item-description")) {
+          documentItems[index].description = event.target.value;
+        } else if (event.target.classList.contains("document-item-quantity")) {
+          documentItems[index].quantity = Math.max(1, Number(event.target.value) || 1);
+        } else {
+          documentItems[index].unitPrice = Math.max(0, Number(event.target.value) || 0);
+        }
+        updateDocumentTotal();
+        const totalCell = event.target.closest("tr").querySelector(".document-line-total");
+        totalCell.textContent = formatDocumentCurrency(
+          documentItems[index].quantity * documentItems[index].unitPrice
+        );
+      });
+    });
+
+    body.querySelectorAll(".document-remove-item").forEach(button => {
+      button.addEventListener("click", () => {
+        if (documentItems.length === 1) {
+          documentItems[0] = { description: "", quantity: 1, unitPrice: 0 };
+        } else {
+          documentItems.splice(Number(button.dataset.index), 1);
+        }
+        renderDocumentItems();
+      });
+    });
+
+    updateDocumentTotal();
+  }
+
+  function updateDocumentTotal() {
+    const total = documentItems.reduce(
+      (sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
+      0
+    );
+    if ($("documentGrandTotal")) {
+      $("documentGrandTotal").textContent = formatDocumentCurrency(total);
+    }
+  }
+
+  function updateDocumentNotice() {
+    const type = $("documentType").value;
+    const notice = $("documentLegalNotice");
+    $("documentDeliveryDateField").classList.toggle("hidden", type === "TEKLIF");
+
+    if (type === "TEKLIF") {
+      notice.innerHTML = "<strong>Teklif geçerliliği:</strong> Bu teklif yalnızca düzenlendiği gün için geçerlidir.";
+    } else if (type === "TESLIMAT") {
+      notice.innerHTML = "<strong>Teslim beyanı:</strong> Yukarıda belirtilen ürünleri eksiksiz ve hasarsız olarak teslim aldım.";
+    } else {
+      notice.innerHTML = "<strong>Satış belgesi:</strong> Ürün, ödeme ve teslimat bilgilerini kontrol ederek kaydedin.";
+    }
+  }
+
+  function clearDocumentForm() {
+    $("documentCustomerName").value = "";
+    $("documentPhone").value = "";
+    $("documentAddress").value = "";
+    $("documentPayment").value = "";
+    $("documentDeliveryDate").value = "";
+    $("documentNotes").value = "";
+    documentItems = [{ description: "", quantity: 1, unitPrice: 0 }];
+    renderDocumentItems();
+    updateDocumentNotice();
+  }
+
+  function collectDocumentForm() {
+    return {
+      type: $("documentType").value,
+      customerName: $("documentCustomerName").value.trim(),
+      phone: $("documentPhone").value.trim(),
+      address: $("documentAddress").value.trim(),
+      payment: $("documentPayment").value.trim(),
+      deliveryDate: $("documentDeliveryDate").value,
+      notes: $("documentNotes").value.trim(),
+      items: documentItems.map(item => ({ ...item }))
+    };
+  }
+
+  function printStoreDocument(data, targetWindow) {
+    const w = targetWindow || window.open("", "_blank");
+    if (!w) {
+      showToast("Yazdırma penceresi engellendi. Açılır pencerelere izin verin.", "error");
+      return;
+    }
+
+    const itemRows = (data.items || []).map((item, index) => `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${documentEscape(item.description)}</td>
+        <td>${documentEscape(item.quantity)}</td>
+        <td>${formatDocumentCurrency(item.unitPrice)}</td>
+        <td>${formatDocumentCurrency(item.quantity * item.unitPrice)}</td>
+      </tr>
+    `).join("");
+
+    const isOffer = data.type === "TEKLIF";
+    const isDelivery = data.type === "TESLIMAT";
+    const legalText = isOffer
+      ? "Bu teklif yalnızca düzenlendiği gün için geçerlidir."
+      : isDelivery
+        ? "Yukarıda belirtilen ürünleri eksiksiz ve hasarsız olarak teslim aldım."
+        : "Yukarıdaki ürün, fiyat ve ödeme bilgilerini okudum ve kabul ettim.";
+
+    const signatureHtml = isDelivery || data.type === "SATIS" ? `
+      <div class="signatures">
+        <div><strong>Müşteri / Teslim Alan</strong><span>Ad Soyad</span><span>İmza</span></div>
+        <div><strong>Teslim Eden / Satış Personeli</strong><span>${documentEscape(data.personnel || "")}</span><span>İmza</span></div>
+      </div>
+    ` : "";
+
+    w.document.open();
+    w.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8">
+      <title>${documentEscape(data.typeLabel)} • ${documentEscape(data.documentNumber)}</title>
+      <style>
+        @page{size:A4 portrait;margin:12mm}
+        *{box-sizing:border-box} body{font-family:Arial,sans-serif;color:#27343a;margin:0;background:#fff}
+        .toolbar{margin-bottom:14px}.toolbar button{background:#315b66;color:#fff;border:0;border-radius:8px;padding:10px 16px;font-weight:700}
+        .header{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #315b66;padding-bottom:12px}
+        .header img{width:86px;height:86px;object-fit:contain}.brand{display:flex;gap:14px;align-items:center}
+        h1{font-size:22px;margin:0;color:#28474e}.brand p,.meta p{margin:4px 0;color:#647780;font-size:12px}
+        .meta{text-align:right}.meta strong{display:block;font-size:15px;color:#28474e}
+        .customer{display:grid;grid-template-columns:1fr 1fr;gap:8px 22px;background:#f3f7f8;border:1px solid #d8e4e6;border-radius:10px;padding:14px;margin:16px 0}
+        .customer div{font-size:12px}.customer b{display:block;color:#60757c;margin-bottom:3px}.wide{grid-column:1/-1}
+        table{width:100%;border-collapse:collapse;font-size:11px}th{background:#dfeaec;color:#28474e}th,td{border:1px solid #cad8db;padding:8px;text-align:left}th:nth-child(1),td:nth-child(1){width:34px;text-align:center}th:nth-child(3),td:nth-child(3){width:55px;text-align:center}th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5){width:100px;text-align:right}
+        .total{display:flex;justify-content:flex-end;gap:25px;font-size:16px;padding:14px 5px}.total strong{color:#28474e}
+        .legal{border-left:4px solid #5f8f98;background:#eef4f5;padding:12px 14px;margin-top:14px;font-size:12px;font-weight:700}
+        .notes{margin-top:12px;font-size:11px;min-height:34px}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:55px;margin-top:45px}
+        .signatures div{border-top:1px solid #80949b;padding-top:8px;min-height:80px}.signatures strong,.signatures span{display:block;margin-bottom:8px;font-size:11px}
+        .footer{position:fixed;bottom:0;left:0;right:0;border-top:1px solid #d8e4e6;padding-top:6px;font-size:9px;color:#71858c;text-align:center}
+        @media print{.toolbar{display:none}}
+      </style></head><body>
+      <div class="toolbar"><button onclick="window.print()">Yazdır / PDF Olarak Kaydet</button></div>
+      <div class="header"><div class="brand"><img src="https://sezgincuneyt07-star.github.io/hoca-mobilya-stock-pro/assets/hoca-logo.png?v=16"><div><h1>HOCA MOBİLYA</h1><p>${documentEscape(data.typeLabel)} Formu</p></div></div>
+      <div class="meta"><strong>${documentEscape(data.documentNumber)}</strong><p>${documentEscape(data.displayDate || data.date || "")}</p><p>Düzenleyen: ${documentEscape(data.personnel || "")}</p></div></div>
+      <div class="customer"><div><b>Müşteri</b>${documentEscape(data.customerName)}</div><div><b>Telefon</b>${documentEscape(data.phone || "-")}</div><div class="wide"><b>Adres</b>${documentEscape(data.address || "-")}</div>${data.deliveryDate ? `<div><b>Teslimat Tarihi</b>${documentEscape(data.deliveryDate)}</div>` : ""}${data.payment ? `<div><b>Ödeme Bilgisi</b>${documentEscape(data.payment)}</div>` : ""}</div>
+      <table><thead><tr><th>#</th><th>Ürün / Açıklama</th><th>Adet</th><th>Birim Fiyat</th><th>Tutar</th></tr></thead><tbody>${itemRows}</tbody></table>
+      <div class="total"><span>Genel Toplam</span><strong>${formatDocumentCurrency(data.total)}</strong></div>
+      ${data.notes ? `<div class="notes"><b>Notlar:</b> ${documentEscape(data.notes)}</div>` : ""}
+      <div class="legal">${documentEscape(legalText)}</div>${signatureHtml}
+      <div class="footer">HOCA MOBİLYA • ${documentEscape(data.typeLabel)} • ${documentEscape(data.documentNumber)}</div>
+      </body></html>`);
+    w.document.close();
+    w.focus();
+  }
+
+  async function saveDocumentAndPrint() {
+    const button = $("saveDocumentButton");
+    const printWindow = window.open("", "_blank");
+    if (printWindow) {
+      printWindow.document.write("<p style='font-family:Arial;padding:30px'>Belge hazırlanıyor...</p>");
+    }
+    button.disabled = true;
+    try {
+      const result = await serverCall("saveStoreDocument", collectDocumentForm(), state.token);
+      showToast(result.message, "success");
+      printStoreDocument(result.document, printWindow);
+      clearDocumentForm();
+      await loadDocumentArchive();
+    } catch (error) {
+      if (printWindow) printWindow.close();
+      showToast(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function loadDocumentArchive() {
+    if (!state.token || !$("documentArchiveList")) return;
+    const list = $("documentArchiveList");
+    list.innerHTML = '<div class="empty-state">Belgeler yükleniyor...</div>';
+    try {
+      const records = await serverCall("listStoreDocuments", {
+        query: $("documentArchiveSearch").value.trim(),
+        type: $("documentArchiveType").value
+      }, state.token);
+
+      if (!records.length) {
+        list.innerHTML = '<div class="empty-state">Eşleşen belge bulunamadı.</div>';
+        return;
+      }
+
+      list.innerHTML = records.map(record => `
+        <article class="document-archive-item">
+          <div><span class="document-type-badge">${documentEscape(record.typeLabel)}</span><strong>${documentEscape(record.documentNumber)}</strong><small>${documentEscape(record.date)} • ${documentEscape(record.personnel)}</small></div>
+          <div><strong>${documentEscape(record.customerName)}</strong><small>${documentEscape(record.phone || "Telefon yok")}</small></div>
+          <div class="document-archive-total">${formatDocumentCurrency(record.total)}</div>
+          <button class="secondary-button document-open-button" data-number="${documentEscape(record.documentNumber)}" type="button">Aç / Yazdır</button>
+        </article>
+      `).join("");
+
+      list.querySelectorAll(".document-open-button").forEach(button => {
+        button.addEventListener("click", async () => {
+          const printWindow = window.open("", "_blank");
+          try {
+            const documentData = await serverCall("getStoreDocument", button.dataset.number, state.token);
+            printStoreDocument(documentData, printWindow);
+          } catch (error) {
+            if (printWindow) printWindow.close();
+            showToast(error.message, "error");
+          }
+        });
+      });
+    } catch (error) {
+      list.innerHTML = `<div class="empty-state error">${documentEscape(error.message)}</div>`;
+    }
+  }
+
+  function initializeDocuments() {
+    if (!$("documentItemsBody")) return;
+    clearDocumentForm();
+    $("documentType").addEventListener("change", updateDocumentNotice);
+    $("addDocumentItemButton").addEventListener("click", () => addDocumentItem());
+    $("clearDocumentButton").addEventListener("click", clearDocumentForm);
+    $("saveDocumentButton").addEventListener("click", saveDocumentAndPrint);
+    $("refreshDocumentsButton").addEventListener("click", loadDocumentArchive);
+    $("searchDocumentsButton").addEventListener("click", loadDocumentArchive);
+    $("documentArchiveSearch").addEventListener("keydown", event => {
+      if (event.key === "Enter") loadDocumentArchive();
+    });
+  }
+
   function bindEvents() {
     $("loginButton").addEventListener(
       "click",
@@ -4381,6 +4654,7 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
 
       captureReturnedCameraScan();
       bindEvents();
+      initializeDocuments();
       applyCameraAvailability();
       await loadPersonnel();
       showLogin();

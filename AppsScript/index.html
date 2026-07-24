@@ -67,6 +67,7 @@
         <button class="menu-item" data-page="stock">Stok İşlemi</button>
         <button class="menu-item" data-page="camera">Hızlı Kamera</button>
         <button class="menu-item" data-page="products">Ürünler</button>
+        <button class="menu-item" data-page="documents">Belgeler</button>
         <button class="menu-item" data-page="daily">Günlük Kontrol</button>
         <button class="menu-item" data-page="bulk">Toplu Stok</button>
         <button class="menu-item admin-only" data-page="reports">Stok Raporları</button>
@@ -802,6 +803,104 @@
       </section>
 
 
+      <section id="page-documents" class="page">
+        <div class="documents-layout">
+          <article class="panel document-editor-card">
+            <div class="panel-heading">
+              <div>
+                <span class="section-label">MAĞAZA BELGELERİ</span>
+                <h3>Yeni Belge Oluştur</h3>
+                <p>Teklif, satış veya teslimat belgesi hazırlayın.</p>
+              </div>
+            </div>
+
+            <div class="document-form-grid">
+              <label>Belge Türü
+                <select id="documentType">
+                  <option value="TEKLIF">Teklif Formu</option>
+                  <option value="SATIS">Satış Formu</option>
+                  <option value="TESLIMAT">Teslimat Formu</option>
+                </select>
+              </label>
+              <label>Müşteri Adı Soyadı
+                <input id="documentCustomerName" type="text" placeholder="Müşteri adı" maxlength="120">
+              </label>
+              <label>Telefon
+                <input id="documentPhone" type="tel" placeholder="05xx xxx xx xx" maxlength="50">
+              </label>
+              <label id="documentDeliveryDateField">Teslimat Tarihi
+                <input id="documentDeliveryDate" type="date">
+              </label>
+              <label class="document-wide-field">Adres
+                <textarea id="documentAddress" rows="2" placeholder="Teslimat / müşteri adresi"></textarea>
+              </label>
+              <label class="document-wide-field">Ödeme Bilgisi
+                <input id="documentPayment" type="text" placeholder="Nakit, kart, kapora veya ödeme açıklaması">
+              </label>
+            </div>
+
+            <div class="document-items-heading">
+              <div>
+                <strong>Ürünler / Hizmetler</strong>
+                <small>Belgeye eklenecek kalemleri yazın.</small>
+              </div>
+              <button id="addDocumentItemButton" class="secondary-button" type="button">+ Satır Ekle</button>
+            </div>
+
+            <div class="document-items-table-wrap">
+              <table class="document-items-table">
+                <thead>
+                  <tr><th>Açıklama</th><th>Adet</th><th>Birim Fiyat</th><th>Tutar</th><th></th></tr>
+                </thead>
+                <tbody id="documentItemsBody"></tbody>
+              </table>
+            </div>
+
+            <div class="document-total-row">
+              <span>Genel Toplam</span>
+              <strong id="documentGrandTotal">₺0,00</strong>
+            </div>
+
+            <label class="document-notes-field">Notlar
+              <textarea id="documentNotes" rows="3" placeholder="Belgeye eklenecek açıklamalar"></textarea>
+            </label>
+
+            <div id="documentLegalNotice" class="document-legal-notice"></div>
+
+            <div class="document-action-row">
+              <button id="clearDocumentButton" class="secondary-button" type="button">Formu Temizle</button>
+              <button id="saveDocumentButton" class="primary-button" type="button">Kaydet ve Yazdır</button>
+            </div>
+          </article>
+
+          <article class="panel document-archive-card">
+            <div class="panel-heading">
+              <div>
+                <span class="section-label">BELGE ARŞİVİ</span>
+                <h3>Kayıtlı Belgeler</h3>
+                <p>Belgeleri bulup yeniden açın veya yazdırın.</p>
+              </div>
+              <button id="refreshDocumentsButton" class="secondary-button" type="button">Yenile</button>
+            </div>
+
+            <div class="document-archive-filters">
+              <input id="documentArchiveSearch" type="search" placeholder="Belge no, müşteri veya telefon ara">
+              <select id="documentArchiveType">
+                <option value="">Tüm belge türleri</option>
+                <option value="Teklif">Teklif</option>
+                <option value="Satış">Satış</option>
+                <option value="Teslimat">Teslimat</option>
+              </select>
+              <button id="searchDocumentsButton" class="secondary-button" type="button">Ara</button>
+            </div>
+
+            <div id="documentArchiveList" class="document-archive-list">
+              <div class="empty-state">Belgeleri görmek için arşivi yenileyin.</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section id="page-reports" class="page admin-only">
         <div class="dashboard-welcome reports-welcome">
           <div>
@@ -969,6 +1068,7 @@
           <button class="mobile-menu-page" data-page="stock" type="button"><span class="menu-line-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 3v15m0 0-4-4m4 4 4-4"/><path d="M17 21V6m0 0-4 4m4-4 4 4"/></svg></span><strong>Stok İşlemi</strong><small>Stok giriş veya çıkış işlemi</small></button>
           <button class="mobile-menu-page" data-page="camera" type="button"><span class="menu-line-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3v12H4z"/><circle cx="12" cy="13" r="3.5"/><path d="M7 10v6m10-6v6"/></svg></span><strong>Hızlı Kamera</strong><small>Barkodları okut ve toplu onayla</small></button>
           <button class="mobile-menu-page" data-page="products" type="button"><span class="menu-line-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4z"/><path d="M4 7v10l8 4 8-4V7"/><path d="M12 11v10"/></svg></span><strong>Ürünler</strong><small>Ürünleri ara, ekle ve düzenle</small></button>
+          <button class="mobile-menu-page" data-page="documents" type="button"><span class="menu-line-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg></span><strong>Belgeler</strong><small>Teklif, satış, teslimat ve arşiv</small></button>
           <button class="mobile-menu-page" data-page="daily" type="button"><span class="menu-line-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4m8-4v4M4 10h16"/><path d="m8 15 2 2 5-5"/></svg></span><strong>Günlük Kontrol</strong><small>Bugünkü işlemleri incele</small></button>
           <button class="mobile-menu-page" data-page="bulk" type="button"><span class="menu-line-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h16v4H4zM4 14h16v4H4z"/><path d="M8 10v4m8-4v4"/></svg></span><strong>Toplu Stok</strong><small>Kategori stoklarını görüntüle</small></button>
           <button class="mobile-menu-page admin-only" data-page="reports" type="button"><span class="menu-line-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 20V9m7 11V4m7 16v-7"/><path d="M3 20h18"/></svg></span><strong>Stok Raporları</strong><small>Rapor ve dışa aktarma</small></button>

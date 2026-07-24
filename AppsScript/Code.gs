@@ -39,7 +39,10 @@ const APP_CONFIG = {
       "TopluIslemler",
 
     STOCK_SUMMARY:
-      "Stok Özeti"
+      "Stok Özeti",
+
+    DOCUMENTS:
+      "Belgeler"
 
   },
 
@@ -156,6 +159,30 @@ const APP_CONFIG = {
     "Sonuc JSON",
 
     "Hata"
+
+  ],
+
+  DOCUMENT_HEADERS: [
+
+    "Belge No",
+
+    "Belge Türü",
+
+    "Tarih",
+
+    "Müşteri",
+
+    "Telefon",
+
+    "Adres",
+
+    "Toplam",
+
+    "Düzenleyen",
+
+    "Durum",
+
+    "Belge JSON"
 
   ],
 
@@ -4609,6 +4636,154 @@ function appendMovement_(
  * OTURUM YETKİ KONTROLÜ
  ************************************************************/
 
+function saveStoreDocument(documentData, token) {
+  const session = authorize_(token);
+  const data = documentData && typeof documentData === "object" ? documentData : {};
+  const types = { TEKLIF: "Teklif", SATIS: "Satış", TESLIMAT: "Teslimat" };
+  const typeKey = cleanText_(data.type).toUpperCase();
+  if (!types[typeKey]) throw new Error("Geçerli bir belge türü seçiniz.");
+
+  const customerName = cleanText_(data.customerName);
+  if (!customerName) throw new Error("Müşteri adı girilmelidir.");
+
+  const items = (Array.isArray(data.items) ? data.items : []).slice(0, 50).map(function (item) {
+    return {
+      description: cleanText_(item && item.description).slice(0, 250),
+      quantity: Math.max(1, toNonNegativeInteger_(item && item.quantity)),
+      unitPrice: Math.max(0, Number(item && item.unitPrice) || 0)
+    };
+  }).filter(function (item) { return Boolean(item.description); });
+
+  if (!items.length) throw new Error("Belgeye en az bir ürün ekleyiniz.");
+
+  const total = items.reduce(function (sum, item) {
+    return sum + item.quantity * item.unitPrice;
+  }, 0);
+  const now = new Date();
+  const prefixes = { TEKLIF: "TKL", SATIS: "SAT", TESLIMAT: "TES" };
+  const documentNumber = prefixes[typeKey] + "-" +
+    Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyyMMdd-HHmmss") + "-" +
+    Utilities.getUuid().replace(/-/g, "").slice(0, 4).toUpperCase();
+
+  const savedDocument = {
+    documentNumber: documentNumber,
+    type: typeKey,
+    typeLabel: types[typeKey],
+    date: now.toISOString(),
+    displayDate: Utilities.formatDate(now, Session.getScriptTimeZone(), "dd.MM.yyyy HH:mm"),
+    customerName: customerName,
+    phone: cleanText_(data.phone).slice(0, 50),
+    address: cleanText_(data.address).slice(0, 500),
+    notes: cleanText_(data.notes).slice(0, 1000),
+    payment: cleanText_(data.payment).slice(0, 250),
+    deliveryDate: cleanText_(data.deliveryDate).slice(0, 50),
+    items: items,
+    total: total,
+    personnel: session.personnel,
+    status: "Aktif"
+  };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = ensureDocumentsSheet_();
+    sheet.appendRow([
+      savedDocument.documentNumber, savedDocument.typeLabel, now,
+      savedDocument.customerName, savedDocument.phone, savedDocument.address,
+      savedDocument.total, savedDocument.personnel, savedDocument.status,
+      JSON.stringify(savedDocument)
+    ]);
+  } finally {
+    lock.releaseLock();
+  }
+
+  return {
+    success: true,
+    message: savedDocument.typeLabel + " belgesi kaydedildi.",
+    document: savedDocument
+  };
+}
+
+
+function listStoreDocuments(filters, token) {
+  authorize_(token);
+  const sheet = ensureDocumentsSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  const cleanFilters = filters && typeof filters === "object" ? filters : {};
+  const query = cleanText_(cleanFilters.query).toLocaleLowerCase("tr-TR");
+  const type = cleanText_(cleanFilters.type).toLocaleLowerCase("tr-TR");
+
+  return sheet.getRange(2, 1, lastRow - 1, APP_CONFIG.DOCUMENT_HEADERS.length)
+    .getValues()
+    .map(function (row) {
+      return {
+        documentNumber: cleanText_(row[0]),
+        typeLabel: cleanText_(row[1]),
+        date: row[2] instanceof Date
+          ? Utilities.formatDate(row[2], Session.getScriptTimeZone(), "dd.MM.yyyy HH:mm")
+          : cleanText_(row[2]),
+        customerName: cleanText_(row[3]),
+        phone: cleanText_(row[4]),
+        total: Number(row[6]) || 0,
+        personnel: cleanText_(row[7]),
+        status: cleanText_(row[8])
+      };
+    })
+    .filter(function (record) {
+      const searchable = (
+        record.documentNumber + " " + record.customerName + " " +
+        record.phone + " " + record.personnel
+      ).toLocaleLowerCase("tr-TR");
+      return (!query || searchable.indexOf(query) >= 0) &&
+        (!type || record.typeLabel.toLocaleLowerCase("tr-TR") === type);
+    })
+    .reverse()
+    .slice(0, 300);
+}
+
+
+function getStoreDocument(documentNumber, token) {
+  authorize_(token);
+  const cleanNumber = cleanText_(documentNumber);
+  const sheet = ensureDocumentsSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) throw new Error("Belge bulunamadı.");
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, APP_CONFIG.DOCUMENT_HEADERS.length).getValues();
+  for (let index = 0; index < rows.length; index += 1) {
+    if (cleanText_(rows[index][0]) === cleanNumber) {
+      try {
+        return JSON.parse(cleanText_(rows[index][9]));
+      } catch (parseError) {
+        throw new Error("Belge içeriği okunamadı.");
+      }
+    }
+  }
+  throw new Error("Belge bulunamadı.");
+}
+
+
+function ensureDocumentsSheet_() {
+  const spreadsheet = getSpreadsheet_();
+  const sheet = ensureSheet_(
+    spreadsheet,
+    APP_CONFIG.SHEETS.DOCUMENTS,
+    APP_CONFIG.DOCUMENT_HEADERS
+  );
+  sheet.setFrozenRows(1);
+  sheet.setHiddenGridlines(true);
+  sheet.setTabColor("#4f7c86");
+  sheet.getRange(1, 1, 1, APP_CONFIG.DOCUMENT_HEADERS.length)
+    .setBackground("#dfeaec")
+    .setFontColor("#28474e")
+    .setFontWeight("bold");
+  sheet.hideColumns(10);
+  return sheet;
+}
+
+
 function authorize_(
   token
 ) {
@@ -5414,6 +5589,11 @@ function formatCoreSheets_(
       name: APP_CONFIG.SHEETS.BATCH_TRANSACTIONS,
       tabColor: "#9a7a57",
       widths: [210, 150, 150, 135, 115, 100, 100, 210, 250, 250]
+    },
+    {
+      name: APP_CONFIG.SHEETS.DOCUMENTS,
+      tabColor: "#4f7c86",
+      widths: [190, 100, 145, 180, 125, 250, 110, 135, 90, 250]
     }
   ];
 
