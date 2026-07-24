@@ -4648,7 +4648,10 @@ function saveStoreDocument(documentData, token) {
 
   const items = (Array.isArray(data.items) ? data.items : []).slice(0, 50).map(function (item) {
     return {
+      code: cleanText_(item && item.code).slice(0, 80),
       description: cleanText_(item && item.description).slice(0, 250),
+      size: cleanText_(item && item.size).slice(0, 100),
+      color: cleanText_(item && item.color).slice(0, 120),
       quantity: Math.max(1, toNonNegativeInteger_(item && item.quantity)),
       unitPrice: Math.max(0, Number(item && item.unitPrice) || 0)
     };
@@ -4673,9 +4676,14 @@ function saveStoreDocument(documentData, token) {
     displayDate: Utilities.formatDate(now, Session.getScriptTimeZone(), "dd.MM.yyyy HH:mm"),
     customerName: customerName,
     phone: cleanText_(data.phone).slice(0, 50),
+    orderReference: cleanText_(data.orderReference).slice(0, 80),
+    taxId: cleanText_(data.taxId).slice(0, 30),
     address: cleanText_(data.address).slice(0, 500),
     notes: cleanText_(data.notes).slice(0, 1000),
     payment: cleanText_(data.payment).slice(0, 250),
+    paidAmount: Math.max(0, Number(data.paidAmount) || 0),
+    balance: Math.max(0, total - (Number(data.paidAmount) || 0)),
+    deliveryMethod: cleanText_(data.deliveryMethod).slice(0, 250),
     deliveryDate: cleanText_(data.deliveryDate).slice(0, 50),
     items: items,
     total: total,

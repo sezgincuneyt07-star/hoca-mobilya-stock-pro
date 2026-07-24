@@ -828,6 +828,12 @@
               <label>Telefon
                 <input id="documentPhone" type="tel" placeholder="05xx xxx xx xx" maxlength="50">
               </label>
+              <label>Sipariş / Referans No
+                <input id="documentOrderReference" type="text" placeholder="Varsa sipariş numarası" maxlength="80">
+              </label>
+              <label>Vergi / T.C. No
+                <input id="documentTaxId" type="text" placeholder="İsteğe bağlı" maxlength="30">
+              </label>
               <label id="documentDeliveryDateField">Teslimat Tarihi
                 <input id="documentDeliveryDate" type="date">
               </label>
@@ -836,6 +842,12 @@
               </label>
               <label class="document-wide-field">Ödeme Bilgisi
                 <input id="documentPayment" type="text" placeholder="Nakit, kart, kapora veya ödeme açıklaması">
+              </label>
+              <label id="documentPaidAmountField">Alınan Ödeme / Kapora
+                <input id="documentPaidAmount" type="number" min="0" step="0.01" placeholder="0,00">
+              </label>
+              <label id="documentDeliveryMethodField">Teslimat / Montaj
+                <input id="documentDeliveryMethod" type="text" placeholder="Mağaza teslimi, nakliye, montaj vb.">
               </label>
             </div>
 
@@ -850,7 +862,7 @@
             <div class="document-items-table-wrap">
               <table class="document-items-table">
                 <thead>
-                  <tr><th>Açıklama</th><th>Adet</th><th>Birim Fiyat</th><th>Tutar</th><th></th></tr>
+                  <tr><th>Kod</th><th>Ürün / Model</th><th>Ölçü</th><th>Renk / Kumaş</th><th>Adet</th><th>Birim Fiyat</th><th>Tutar</th><th></th></tr>
                 </thead>
                 <tbody id="documentItemsBody"></tbody>
               </table>

@@ -3877,7 +3877,10 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
 
   function addDocumentItem(item = {}) {
     documentItems.push({
+      code: item.code || "",
       description: item.description || "",
+      size: item.size || "",
+      color: item.color || "",
       quantity: Math.max(1, Number(item.quantity) || 1),
       unitPrice: Math.max(0, Number(item.unitPrice) || 0)
     });
@@ -3892,7 +3895,10 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
     documentItems.forEach((item, index) => {
       const row = document.createElement("tr");
       row.innerHTML = `
+        <td><input class="document-item-code" data-index="${index}" type="text" value="${documentEscape(item.code)}" placeholder="Ürün kodu"></td>
         <td><input class="document-item-description" data-index="${index}" type="text" value="${documentEscape(item.description)}" placeholder="Ürün veya hizmet açıklaması"></td>
+        <td><input class="document-item-size" data-index="${index}" type="text" value="${documentEscape(item.size)}" placeholder="Ölçü"></td>
+        <td><input class="document-item-color" data-index="${index}" type="text" value="${documentEscape(item.color)}" placeholder="Renk / kumaş"></td>
         <td><input class="document-item-quantity" data-index="${index}" type="number" min="1" step="1" value="${item.quantity}"></td>
         <td><input class="document-item-price" data-index="${index}" type="number" min="0" step="0.01" value="${item.unitPrice}"></td>
         <td class="document-line-total">${formatDocumentCurrency(item.quantity * item.unitPrice)}</td>
@@ -3904,8 +3910,14 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
     body.querySelectorAll("input").forEach(input => {
       input.addEventListener("input", event => {
         const index = Number(event.target.dataset.index);
-        if (event.target.classList.contains("document-item-description")) {
+        if (event.target.classList.contains("document-item-code")) {
+          documentItems[index].code = event.target.value;
+        } else if (event.target.classList.contains("document-item-description")) {
           documentItems[index].description = event.target.value;
+        } else if (event.target.classList.contains("document-item-size")) {
+          documentItems[index].size = event.target.value;
+        } else if (event.target.classList.contains("document-item-color")) {
+          documentItems[index].color = event.target.value;
         } else if (event.target.classList.contains("document-item-quantity")) {
           documentItems[index].quantity = Math.max(1, Number(event.target.value) || 1);
         } else {
@@ -3922,7 +3934,7 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
     body.querySelectorAll(".document-remove-item").forEach(button => {
       button.addEventListener("click", () => {
         if (documentItems.length === 1) {
-          documentItems[0] = { description: "", quantity: 1, unitPrice: 0 };
+          documentItems[0] = { code: "", description: "", size: "", color: "", quantity: 1, unitPrice: 0 };
         } else {
           documentItems.splice(Number(button.dataset.index), 1);
         }
@@ -3947,6 +3959,8 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
     const type = $("documentType").value;
     const notice = $("documentLegalNotice");
     $("documentDeliveryDateField").classList.toggle("hidden", type === "TEKLIF");
+    $("documentPaidAmountField").classList.toggle("hidden", type !== "SATIS");
+    $("documentDeliveryMethodField").classList.toggle("hidden", type === "TEKLIF");
 
     if (type === "TEKLIF") {
       notice.innerHTML = "<strong>Teklif geçerliliği:</strong> Bu teklif yalnızca düzenlendiği gün için geçerlidir.";
@@ -3960,11 +3974,15 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
   function clearDocumentForm() {
     $("documentCustomerName").value = "";
     $("documentPhone").value = "";
+    $("documentOrderReference").value = "";
+    $("documentTaxId").value = "";
     $("documentAddress").value = "";
     $("documentPayment").value = "";
+    $("documentPaidAmount").value = "";
+    $("documentDeliveryMethod").value = "";
     $("documentDeliveryDate").value = "";
     $("documentNotes").value = "";
-    documentItems = [{ description: "", quantity: 1, unitPrice: 0 }];
+    documentItems = [{ code: "", description: "", size: "", color: "", quantity: 1, unitPrice: 0 }];
     renderDocumentItems();
     updateDocumentNotice();
   }
@@ -3974,8 +3992,12 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
       type: $("documentType").value,
       customerName: $("documentCustomerName").value.trim(),
       phone: $("documentPhone").value.trim(),
+      orderReference: $("documentOrderReference").value.trim(),
+      taxId: $("documentTaxId").value.trim(),
       address: $("documentAddress").value.trim(),
       payment: $("documentPayment").value.trim(),
+      paidAmount: $("documentPaidAmount").value,
+      deliveryMethod: $("documentDeliveryMethod").value.trim(),
       deliveryDate: $("documentDeliveryDate").value,
       notes: $("documentNotes").value.trim(),
       items: documentItems.map(item => ({ ...item }))
@@ -3989,18 +4011,22 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
       return;
     }
 
+    const isOffer = data.type === "TEKLIF";
+    const isDelivery = data.type === "TESLIMAT";
     const itemRows = (data.items || []).map((item, index) => `
       <tr>
         <td>${index + 1}</td>
+        <td>${documentEscape(item.code || "-")}</td>
         <td>${documentEscape(item.description)}</td>
+        <td>${documentEscape(item.size || "-")}</td>
+        <td>${documentEscape(item.color || "-")}</td>
         <td>${documentEscape(item.quantity)}</td>
-        <td>${formatDocumentCurrency(item.unitPrice)}</td>
-        <td>${formatDocumentCurrency(item.quantity * item.unitPrice)}</td>
+        ${isDelivery ? "" : `<td>${formatDocumentCurrency(item.unitPrice)}</td><td>${formatDocumentCurrency(item.quantity * item.unitPrice)}</td>`}
       </tr>
     `).join("");
-
-    const isOffer = data.type === "TEKLIF";
-    const isDelivery = data.type === "TESLIMAT";
+    const itemHeaders = isDelivery
+      ? "<th>#</th><th>Kod</th><th>Ürün / Model</th><th>Ölçü</th><th>Renk / Kumaş</th><th>Adet</th>"
+      : "<th>#</th><th>Kod</th><th>Ürün / Model</th><th>Ölçü</th><th>Renk / Kumaş</th><th>Adet</th><th>Birim Fiyat</th><th>Tutar</th>";
     const legalText = isOffer
       ? "Bu teklif yalnızca düzenlendiği gün için geçerlidir."
       : isDelivery
@@ -4012,6 +4038,10 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
         <div><strong>Müşteri / Teslim Alan</strong><span>Ad Soyad</span><span>İmza</span></div>
         <div><strong>Teslim Eden / Satış Personeli</strong><span>${documentEscape(data.personnel || "")}</span><span>İmza</span></div>
       </div>
+    ` : "";
+    const deliveryControlHtml = isDelivery ? `
+      <div class="legal"><b>Teslimat Kontrolü:</b>&nbsp;&nbsp; ☐ Eksiksiz ve hasarsız &nbsp;&nbsp; ☐ Eksik ürün var &nbsp;&nbsp; ☐ Hasar var</div>
+      <div class="notes"><b>Eksik / Hasar Açıklaması:</b> ............................................................................................................................</div>
     ` : "";
 
     w.document.open();
@@ -4027,7 +4057,7 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
         .meta{text-align:right}.meta strong{display:block;font-size:15px;color:#28474e}
         .customer{display:grid;grid-template-columns:1fr 1fr;gap:8px 22px;background:#f3f7f8;border:1px solid #d8e4e6;border-radius:10px;padding:14px;margin:16px 0}
         .customer div{font-size:12px}.customer b{display:block;color:#60757c;margin-bottom:3px}.wide{grid-column:1/-1}
-        table{width:100%;border-collapse:collapse;font-size:11px}th{background:#dfeaec;color:#28474e}th,td{border:1px solid #cad8db;padding:8px;text-align:left}th:nth-child(1),td:nth-child(1){width:34px;text-align:center}th:nth-child(3),td:nth-child(3){width:55px;text-align:center}th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5){width:100px;text-align:right}
+        table{width:100%;border-collapse:collapse;font-size:9px}th{background:#dfeaec;color:#28474e}th,td{border:1px solid #cad8db;padding:7px;text-align:left}th:first-child,td:first-child{width:28px;text-align:center}
         .total{display:flex;justify-content:flex-end;gap:25px;font-size:16px;padding:14px 5px}.total strong{color:#28474e}
         .legal{border-left:4px solid #5f8f98;background:#eef4f5;padding:12px 14px;margin-top:14px;font-size:12px;font-weight:700}
         .notes{margin-top:12px;font-size:11px;min-height:34px}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:55px;margin-top:45px}
@@ -4038,11 +4068,12 @@ const APP_CAMERA_MODE = "GITHUB_TOP_LEVEL_V16_STABLE_BATCH";
       <div class="toolbar"><button onclick="window.print()">Yazdır / PDF Olarak Kaydet</button></div>
       <div class="header"><div class="brand"><img src="https://sezgincuneyt07-star.github.io/hoca-mobilya-stock-pro/assets/hoca-logo.png?v=16"><div><h1>HOCA MOBİLYA</h1><p>${documentEscape(data.typeLabel)} Formu</p></div></div>
       <div class="meta"><strong>${documentEscape(data.documentNumber)}</strong><p>${documentEscape(data.displayDate || data.date || "")}</p><p>Düzenleyen: ${documentEscape(data.personnel || "")}</p></div></div>
-      <div class="customer"><div><b>Müşteri</b>${documentEscape(data.customerName)}</div><div><b>Telefon</b>${documentEscape(data.phone || "-")}</div><div class="wide"><b>Adres</b>${documentEscape(data.address || "-")}</div>${data.deliveryDate ? `<div><b>Teslimat Tarihi</b>${documentEscape(data.deliveryDate)}</div>` : ""}${data.payment ? `<div><b>Ödeme Bilgisi</b>${documentEscape(data.payment)}</div>` : ""}</div>
-      <table><thead><tr><th>#</th><th>Ürün / Açıklama</th><th>Adet</th><th>Birim Fiyat</th><th>Tutar</th></tr></thead><tbody>${itemRows}</tbody></table>
-      <div class="total"><span>Genel Toplam</span><strong>${formatDocumentCurrency(data.total)}</strong></div>
+      <div class="customer"><div><b>Müşteri</b>${documentEscape(data.customerName)}</div><div><b>Telefon</b>${documentEscape(data.phone || "-")}</div>${data.orderReference ? `<div><b>Sipariş / Referans No</b>${documentEscape(data.orderReference)}</div>` : ""}${data.taxId ? `<div><b>Vergi / T.C. No</b>${documentEscape(data.taxId)}</div>` : ""}<div class="wide"><b>Adres</b>${documentEscape(data.address || "-")}</div>${data.deliveryDate ? `<div><b>Planlanan Teslimat</b>${documentEscape(data.deliveryDate)}</div>` : ""}${data.deliveryMethod ? `<div><b>Teslimat / Montaj</b>${documentEscape(data.deliveryMethod)}</div>` : ""}${data.payment ? `<div class="wide"><b>Ödeme Bilgisi</b>${documentEscape(data.payment)}</div>` : ""}</div>
+      <table><thead><tr>${itemHeaders}</tr></thead><tbody>${itemRows}</tbody></table>
+      ${isDelivery ? "" : `<div class="total"><span>Genel Toplam</span><strong>${formatDocumentCurrency(data.total)}</strong></div>`}
+      ${data.type === "SATIS" ? `<div class="customer"><div><b>Alınan Ödeme / Kapora</b>${formatDocumentCurrency(data.paidAmount)}</div><div><b>Kalan Bakiye</b>${formatDocumentCurrency(data.balance)}</div></div>` : ""}
       ${data.notes ? `<div class="notes"><b>Notlar:</b> ${documentEscape(data.notes)}</div>` : ""}
-      <div class="legal">${documentEscape(legalText)}</div>${signatureHtml}
+      ${deliveryControlHtml}<div class="legal">${documentEscape(legalText)}</div>${signatureHtml}
       <div class="footer">HOCA MOBİLYA • ${documentEscape(data.typeLabel)} • ${documentEscape(data.documentNumber)}</div>
       </body></html>`);
     w.document.close();
