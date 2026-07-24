@@ -4840,10 +4840,10 @@ function ensureCategoryStockSheets_() {
           " STOK LİSTESİ"
         )
         .setBackground(
-          "#171717"
+          "#315b66"
         )
         .setFontColor(
-          "#f6c453"
+          "#ffffff"
         )
         .setFontSize(
           16
@@ -4885,10 +4885,10 @@ function ensureCategoryStockSheets_() {
           )
         )
         .setBackground(
-          "#fff7e6"
+          "#eef4f5"
         )
         .setFontColor(
-          "#5f4b22"
+          "#45636a"
         )
         .setFontSize(
           10
@@ -4932,10 +4932,10 @@ function ensureCategoryStockSheets_() {
           APP_CONFIG.PRODUCT_HEADERS.length
         )
         .setBackground(
-          "#171717"
+          "#dfeaec"
         )
         .setFontColor(
-          "#f6c453"
+          "#28474e"
         )
         .setFontWeight(
           "bold"
@@ -4949,7 +4949,7 @@ function ensureCategoryStockSheets_() {
       );
 
       categorySheet.setTabColor(
-        "#f6a800"
+        "#5f8f98"
       );
 
       if (categoryRows.length) {
@@ -5117,6 +5117,10 @@ function ensureCategoryStockSheets_() {
     sourceRows
   );
 
+  formatCoreSheets_(
+    spreadsheet
+  );
+
 }
 
 
@@ -5229,7 +5233,7 @@ function refreshStockSummarySheet_(
     true
   );
   summarySheet.setTabColor(
-    "#171717"
+    "#315b66"
   );
   summarySheet.setFrozenRows(
     5
@@ -5244,10 +5248,10 @@ function refreshStockSummarySheet_(
       "HOCA MOBİLYA • STOK ÖZETİ"
     )
     .setBackground(
-      "#171717"
+      "#315b66"
     )
     .setFontColor(
-      "#f6c453"
+      "#ffffff"
     )
     .setFontSize(
       18
@@ -5270,10 +5274,10 @@ function refreshStockSummarySheet_(
       )
     )
     .setBackground(
-      "#fff7e6"
+      "#eef4f5"
     )
     .setFontColor(
-      "#5f4b22"
+      "#45636a"
     );
 
   summarySheet
@@ -5291,10 +5295,10 @@ function refreshStockSummarySheet_(
       "Tükenen Ürün"
     ]])
     .setBackground(
-      "#171717"
+      "#dfeaec"
     )
     .setFontColor(
-      "#f6c453"
+      "#28474e"
     )
     .setFontWeight(
       "bold"
@@ -5365,6 +5369,251 @@ function refreshStockSummarySheet_(
   summarySheet.setRowHeight(
     5,
     34
+  );
+
+}
+
+
+function formatCoreSheets_(
+  spreadsheet
+) {
+
+  const designVersion =
+    "SHEETS_DESIGN_V2_SOFT";
+
+  const properties =
+    PropertiesService.getScriptProperties();
+
+  if (
+    properties.getProperty(
+      "HOCA_SHEETS_DESIGN_VERSION"
+    ) === designVersion
+  ) {
+
+    return;
+
+  }
+
+  const sheetStyles = [
+    {
+      name: APP_CONFIG.SHEETS.PRODUCTS,
+      tabColor: "#4f7c86",
+      widths: [150, 120, 100, 220, 110, 120, 90, 100, 80]
+    },
+    {
+      name: APP_CONFIG.SHEETS.MOVEMENTS,
+      tabColor: "#6f8796",
+      widths: [145, 145, 115, 95, 210, 105, 110, 105, 80, 100, 100, 125, 155, 260]
+    },
+    {
+      name: APP_CONFIG.SHEETS.PERSONNEL,
+      tabColor: "#7a6f9b",
+      widths: [180, 220, 110, 90, 155]
+    },
+    {
+      name: APP_CONFIG.SHEETS.BATCH_TRANSACTIONS,
+      tabColor: "#9a7a57",
+      widths: [210, 150, 150, 135, 115, 100, 100, 210, 250, 250]
+    }
+  ];
+
+  sheetStyles.forEach(
+    function (style) {
+
+      const sheet =
+        spreadsheet.getSheetByName(
+          style.name
+        );
+
+      if (!sheet) {
+
+        return;
+
+      }
+
+      const lastRow =
+        Math.max(
+          sheet.getLastRow(),
+          1
+        );
+
+      const lastColumn =
+        Math.max(
+          sheet.getLastColumn(),
+          style.widths.length
+        );
+
+      sheet.setHiddenGridlines(
+        true
+      );
+      sheet.setFrozenRows(
+        1
+      );
+      sheet.setTabColor(
+        style.tabColor
+      );
+
+      sheet
+        .getRange(
+          1,
+          1,
+          1,
+          lastColumn
+        )
+        .setBackground(
+          "#dfeaec"
+        )
+        .setFontColor(
+          "#28474e"
+        )
+        .setFontWeight(
+          "bold"
+        )
+        .setFontSize(
+          10
+        )
+        .setHorizontalAlignment(
+          "center"
+        )
+        .setVerticalAlignment(
+          "middle"
+        );
+
+      sheet.setRowHeight(
+        1,
+        34
+      );
+
+      sheet.getBandings().forEach(
+        function (banding) {
+
+          banding.remove();
+
+        }
+      );
+
+      if (lastRow > 1) {
+
+        sheet
+          .getRange(
+            2,
+            1,
+            lastRow - 1,
+            lastColumn
+          )
+          .setFontColor(
+            "#334155"
+          )
+          .setFontSize(
+            10
+          )
+          .setVerticalAlignment(
+            "middle"
+          )
+          .applyRowBanding(
+            SpreadsheetApp.BandingTheme.LIGHT_GREY
+          );
+
+      }
+
+      style.widths.forEach(
+        function (width, index) {
+
+          sheet.setColumnWidth(
+            index + 1,
+            width
+          );
+
+        }
+      );
+
+      if (
+        !sheet.getFilter() &&
+        lastRow > 1
+      ) {
+
+        sheet
+          .getRange(
+            1,
+            1,
+            lastRow,
+            lastColumn
+          )
+          .createFilter();
+
+      }
+
+    }
+  );
+
+  const productsSheet =
+    spreadsheet.getSheetByName(
+      APP_CONFIG.SHEETS.PRODUCTS
+    );
+
+  if (
+    productsSheet &&
+    productsSheet.getLastRow() > 1
+  ) {
+
+    productsSheet
+      .getRange(
+        2,
+        7,
+        productsSheet.getLastRow() - 1,
+        2
+      )
+      .setNumberFormat(
+        "0"
+      )
+      .setHorizontalAlignment(
+        "center"
+      )
+      .setFontWeight(
+        "bold"
+      );
+
+  }
+
+  const movementsSheet =
+    spreadsheet.getSheetByName(
+      APP_CONFIG.SHEETS.MOVEMENTS
+    );
+
+  if (
+    movementsSheet &&
+    movementsSheet.getLastRow() > 1
+  ) {
+
+    movementsSheet
+      .getRange(
+        2,
+        1,
+        movementsSheet.getLastRow() - 1,
+        1
+      )
+      .setNumberFormat(
+        "dd.MM.yyyy HH:mm"
+      );
+
+  }
+
+  const personnelSheet =
+    spreadsheet.getSheetByName(
+      APP_CONFIG.SHEETS.PERSONNEL
+    );
+
+  if (personnelSheet) {
+
+    personnelSheet.hideColumns(
+      2
+    );
+
+  }
+
+  properties.setProperty(
+    "HOCA_SHEETS_DESIGN_VERSION",
+    designVersion
   );
 
 }
